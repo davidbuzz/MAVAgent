@@ -134,6 +134,8 @@ var Xmodules = {};
 
 //MAVLink20Processor is a events.EventEmitter so mavlinkParser2 has .emit()
 
+//----------------------------------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------------------------------
 // empty mock objects that do nearly nothing but mean this code, designed for 'express' and socketio and 'app' doesn't have to be changed much.
 
 // nearly event-emitter object, wich means that io.of(IONameSpace).emit(...) emits to here...
@@ -156,7 +158,7 @@ _emitterClass.prototype.emit = function( msgname, msgdata) {
         // also capture the current vehicle state into the Vehicle-Backbone object, which is kept up-to-date by them.
 
         // also emit this message to all the modules thatre listening..
-        for (const key in modules ){
+      /*  for (const key in modules ){
              // code to verify if a given module is loaded:
              if(modules[key].hasOwnProperty("emitter")) {
                  //console.log("emitter HOOKUP for..: ", key, modules[key].emitter);
@@ -169,21 +171,21 @@ _emitterClass.prototype.emit = function( msgname, msgdata) {
                      modules[key].emitter.emit('message', msgdata);
                  }
              }
-        }
+        }*/
     
         // and the Xmodules 
         for (const key in Xmodules ){
              //console.log("Xmodule telling :", key, msgname,msgdata);
-             Xmodules[key].emit(msgname, msgdata);
+             if (Xmodules[key] != undefined )  Xmodules[key].emit(msgname, msgdata);
              // .. a generic message by a generic name
              msgdata['name'] = msgname;
-             Xmodules[key].emit('message', msgdata);
+             if (Xmodules[key] != undefined ) Xmodules[key].emit('message', msgdata);
         }
 
 }
 var mockEmitter = new _emitterClass(); // instance of object.
 
-// this all disables the webserver, and socketio, wtc... all its code basically does nothing.
+// this all disables the webserver, and socketio, wtc... all its code basically does nothing, except io.of(IONameSpace).emit(..) captured above.
 var webserver = {}
 webserver.listen = function(idx, cb) {};
 var app = {}
@@ -193,11 +195,12 @@ var express = {}
 express.static = function(url) {};
 var io = {}
 io.on = function(event,cb) {};
-io.of = function(ns) { return mockEmitter; }; // this attaches the namespace to the event emitter object just above.
+io.of = function(ns) { return mockEmitter; }; // this attaches the namespace to the instance of 'mockEmitter' event emitter object just above.
 var nsp = {}
 nsp.on = function(event,cb) {};
 
-
+//----------------------------------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------------------------------
 
 webserver.listen(5000+offset, function(){
   console.log(`Express webserver listening on port ${5000+offset}.  goto: http://127.0.0.1:${5000+offset}`);
@@ -608,18 +611,42 @@ clients.on('end', () => {
 //
 //-------------------------------------------------------------
 
-// single module load:
-//var hellomod = require("./modules/hello.js");
+function unloadModule(key,file){
+    console.log("->module UNloaded '"+key+"' from "+file);
+    // remove constructed things
+    if(Xmodules.hasOwnProperty(key)) { delete Xmodules[key]; }
+    // remove loader references
+    if(modules.hasOwnProperty(key)) { delete modules[key];}
+    __unloadModule(file);
+}
+
+/**
+ * Deletes a node module and all associated children from node require cache
+ * @param {string} moduleName The name of the module or absolute/relative path to it
+ */
+function __unloadModule(moduleName) {
+  //console.log("->module UNloaded "+moduleName);
+  var solvedName = require.resolve(moduleName),
+    nodeModule = require.cache[solvedName];
+  if (nodeModule) {
+    for (var i = 0; i < nodeModule.children.length; i++) {
+      var child = nodeModule.children[i];
+      deleteModule(child.filename);
+    }
+    delete require.cache[solvedName];
+  }
+}
 
 // filename = module name
 function loadModule(key,file){
 
-// already loaded
-if(modules.hasOwnProperty(key)) { return; }
+      // already loaded?
+      if(modules.hasOwnProperty(key)) { return; }
 
+      // require the file, and remember it
       modules[key] = require(file);
 
-      // returns a fucntion that is a constructor directly
+      // returns a function that is a constructor directly
       if( typeof modules[key] === 'function') {
 
            //Xmodules[key] = new modules[key]();
@@ -685,15 +712,6 @@ function LoadModules() {
 
 }
 
-// code to verify if a given module is loaded:
-if(modules.hasOwnProperty("hello")) {
-  //blerg
-}
-
-
-//console.log("hello additon....:",modules["hello"].addition(8, 10));
-
-//console.log("hello additon....:",modules.hello.addition(8, 10));
 
 //-------------------------------------------------------------
 //
@@ -705,76 +723,89 @@ if(modules.hasOwnProperty("hello")) {
 // the passed in this is a Buffer of chars, we will change this to chars and words inside
 process_cmdline = function(cmdline) {
 
-  // drop newline
-  if (cmdline[cmdline.length - 1] == 13) { cmdline.pop(); } // remove last item
+    // drop newline
+    if (cmdline[cmdline.length - 1] == 13) { cmdline.pop(); } // remove last item
 
-  //console.log(cmdline);//debug  
+    //console.log(cmdline);//debug  
 
-  var strcmd = String.fromCharCode.apply(null, cmdline); // turn array of bytes into a string
+    var strcmd = String.fromCharCode.apply(null, cmdline); // turn array of bytes into a string
 
-  //console.log("--",strcmd,"--                              "); // extra whitespace to clear rest of line
+    //console.log("--",strcmd,"--                              "); // extra whitespace to clear rest of line
 
-  var args = strcmd.split(" "); // chars to words
+    var args = strcmd.split(" "); // chars to words
 
-  // remove empty words
-  args = args.filter( word => word.length > 0);
+    // remove empty words
+    args = args.filter( word => word.length > 0);
 
-  // print cmd line if non-empty
-  if (args.length > 0 ) {
-    console.log("--",args,"--                              "); // extra whitespace to clear rest of line
-  }
+    // print cmd line if non-empty
+    if (args.length > 0 ) {  console.log("--",args,"--                              "); } // extra whitespace to clear rest of line
+  
+    // q=  quit
+    if (args[0] == "q") { process.exit(0); }
 
-  // q=  quit
-  if (args[0] == "q") { process.exit(0); }
-
-  // l = load all modules
-  if (args[0] == "a") { 
+    // a = load All modules
+    if (args[0] == "a") { 
         LoadModules(); 
 
-//        console.log("hello function....:",modules.hello.hello);
-//        console.log("hello result....:",modules.hello.hello());
-//        console.log("hello additon....:",modules.hello.addition(8, 10));
+        //console.log("hello function....:",modules.hello.hello);
+        //console.log("hello result....:",modules.hello.hello());
+        //console.log("hello additon....:",modules.hello.addition(8, 10));
+    }
+
+    if (args[0] == "ub") { 
+        unloadModule('better','./modules/better.js');
 
     }
 
-  if (args[0] == "b") { 
-  loadModule('better','./modules/better.js');
-  }
+    // b = load 'better' module as an example
+    if (args[0] == "b") { 
+        loadModule('better','./modules/better.js');
+    }
 
-//  if (args[0] == "l") { 
-  loadModule('signing','./modules/signing.js');
- // }
+    // if (args[0] == "l") { 
+    //     loadModule('signing','./modules/signing.js'); = see 'ss'
+    // }
 
-  // s = show signing object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
-  if (args[0] == "s") { 
+    // s = show signing object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
+    if (args[0] == "s") { 
         //console.log(Xmodules.signing);//lrg
         //console.log(Xmodules.signing.mp);//med, 1 screen
         //console.log(Xmodules.signing.mp.signing);//sml, a few lines
-
         console.log(mavlinkParser2);
+    }
 
-  }
+    // d = signing debug - show internal state variable of the signing module
+    if (args[0] == "d") { 
+        loadModule('signing','./modules/signing.js');
 
-// debug
-if (args[0] == "d") { 
         console.log(Xmodules.signing.show_state());
-}
+    }
 
-  // 'signing setup' aka ss aka python self.cmd_signing_setup(args[1:])
+  // ss = 'signing setup' aka ss aka python self.cmd_signing_setup(args[1:])
   if (args[0] == "ss") { 
+        loadModule('signing','./modules/signing.js');
+
         var sk = args.slice(1);
         sk = "qwertyuiop";
-        sysid = 1
+        sysid = 1;
         Xmodules.signing.cmd_signing_setup([sk,sysid])
   }
 
-  // 'undo signing' aka ss aka python self.cmd_signing_setup(args[1:])
+  // uu = 'undo signing' aka reverse of the 'ss' command
   if (args[0] == "uu") { 
-        //var sk = args.slice(1);
-        //sk = "qwertyuiop";
+        loadModule('signing','./modules/signing.js');
+
         Xmodules.signing.cmd_signing_unsetup()
   }
 
+  // module list
+  if (args[0] == "m") { 
+        console.log("module list:" );
+    for (const key in Xmodules ){
+        console.log("\tmodule:",key );
+    }
+  }
+  
 }
 
 // triggers 'on' even after every keypress..
