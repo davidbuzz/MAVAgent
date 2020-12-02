@@ -56,6 +56,9 @@ var Signing = function (m,mp) {
     this.freq = this.freq+1;
     if (this.freq < 10 ) return;
     this.freq = 0;
+    
+    //console.log('[signing] got HUD msg');
+    process.stdout.write('.'); // tickle on screen for seeing activity
 
         var packets_flowing = function(t) {  
             if ( t.mp.total_packets_received > t.total_packet_count ) {
@@ -83,6 +86,11 @@ var Signing = function (m,mp) {
         var packets = packets_flowing(this);
         var anysigs = any_sigs_arriving(this);
         var goodsigs = good_sigs_arriving(this);
+
+        // dordn't work here as this block is only triggered on actual HUD msgs.
+        //if (! packets ) {
+        //   console.log('\n[signing] LINK APPEARS DOWN, sorry. ');  
+        //}
 
        // goodsig_count increasing indicates signing is ON.
        if ((this.verification_state != 1) && packets && anysigs && goodsigs ) {  
@@ -170,9 +178,11 @@ var wrap_long = function (someLong) {
 }
 
 
-// args = list of words
+// args = list of words - first word=scret key, second word optionally=sysid
 Signing.prototype.cmd_signing_setup = function(args) {
   console.log("SIGNING SETUP",args);
+
+        if (args.length > 1) {this.sysid=args[1]}
 
         if ( this.sysid == undefined) {
             print("cant sign without knowing the sysid")
@@ -197,10 +207,12 @@ Signing.prototype.cmd_signing_setup = function(args) {
         var x= Long.fromString(initial_timestamp.toString(), true);
         var long_timestamp = wrap_long(x); 
 
-        var target_system = 255;  // the python impl in mavproxy uses 255 here , so we do, it could be this.sysid
+        //this.mp.srcSystem = 255;    // note that srcSystem should be 255 to match python
+        var target_system = this.sysid;  // and also target=1 to match python
         var target_component = 0;
 
         var setup_signing = new this.m.messages.setup_signing(target_system, target_component, secret_key, long_timestamp);
+        //console.log(setup_signing);
         this.mp.send(setup_signing,this.sysid);
 
         print("Sent secret_key")

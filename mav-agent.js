@@ -37,6 +37,13 @@ generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
     // this is really just part of the original send()
     buf = mavmsg.pack(this);
 
+    // if we don't know the sysid yet, then perhaps 255 is ok?
+    if ( sysid_to_ip_address[sysid] == undefined ) {
+        mavmsg.ip = broadcast_ip_address.ip;
+        mavmsg.port = broadcast_ip_address.port;
+        mavmsg.type = broadcast_ip_address.type; 
+    }
+
       // where we want the packet to go on the network.. we sneak it into the already parsed object that still wraps the raw bytes.
     if (mavmsg.ip == undefined || mavmsg.port == undefined){
         //console.log(sysid_to_ip_address);
@@ -57,7 +64,7 @@ generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
 
     const b = Buffer.from(buf);// convert from array object to Buffer so we can UDP send it.
 
-    console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
+ //   console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
     //console.log(b);
 
     // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
@@ -405,10 +412,17 @@ setTimeout(function(){
 
 // creating a SINGLE custom socket called 'var client' and connecting it....
 var client  = new net.Socket();
-client.connect({
-  host:'127.0.0.1',
-  port:5760
-});
+
+//try {
+
+    client.connect({
+      host:'127.0.0.1',
+      port:5760
+    });
+
+//    } catch(e) {
+  //    console.log('ERR: unable to connect to SITL instance at TCP port 5760..', e.message);
+//}
 
 client.on('connect',function(){
   console.log('Client: connection established with server');
@@ -423,10 +437,34 @@ client.on('connect',function(){
   console.log('Client is IP4/IP6 : ' + family);
 
 
+  broadcast_ip_address = {'ip':ipaddr, 'port':port, 'type':'tcp' }; 
+  client_send_heartbeat(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
+
   // writing data to server
   //client.write('hello from client');// we send something so server doesnt drop us
 
 });
+
+
+var client_send_heartbeat = function() {
+
+   var heartbeat = new mavlink20.messages.heartbeat(); 
+      heartbeat.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
+      heartbeat.type = 17; // fieldtype: uint8_t  isarray: False 
+      heartbeat.autopilot = 84; // fieldtype: uint8_t  isarray: False 
+      heartbeat.base_mode = 151; // fieldtype: uint8_t  isarray: False 
+      heartbeat.system_status = 218; // fieldtype: uint8_t  isarray: False 
+      heartbeat.mavlink_version = 3; // fieldtype: uint8_t  isarray: False 
+
+      //var p = heartbeat.pack(mavlinkParser2);
+
+      mavlinkParser2.send(heartbeat,255); // we don't know the sysid yet, so 255 as a broadcast ip is ok.
+
+ //console.log(" sending heardbeat over tcp link ");
+    process.stdout.write('>');
+
+
+}
 
 //client.setEncoding('utf8'); causes socket to use strings, not buffers, bad for binary data
 
@@ -455,7 +493,7 @@ client.on('data',function(msg){ // msg = a Buffer() of data
         console.log("found mavlink2 header");
         mavlinktype = 2;
     }
-    packetlist = mavlinkParser2.parseBuffer(array_of_chars); 
+    packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
 
     // filter the packets
     function isGood(element, index, array) {
@@ -478,9 +516,11 @@ client.on('data',function(msg){ // msg = a Buffer() of data
  
     //console.log("packet count (all/good): ", packetlist.length,goodpackets.length)
 
-    for (msg of goodpackets){  
-        mavlink_ip_and_port_handler(msg,rinfo.address,rinfo.port,mavlinktype , "tcp");  // [1] = ip  and [2] = port
-    }
+    if (packetlist == null ) return;
+
+   // for (msg of goodpackets){  
+   mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "tcp");  // [1] = ip  and [2] = port
+   // }
 
 });
 
@@ -492,6 +532,13 @@ client.on('error',function(error){
 //setTimeout(function(){
 //  client.end('Bye bye server');
 //},5000);
+
+// heartbeat handler at 1hz
+var heartbeat_interval = setInterval(function(){
+  client_send_heartbeat(); // types '>' on console 
+},1000);
+// clear with clearInterval(heartbeat_interval)
+
 
 //NOTE:--> all the events of the socket are applicable here..in client...
 
@@ -680,7 +727,8 @@ if (args[0] == "d") {
   if (args[0] == "ss") { 
         var sk = args.slice(1);
         sk = "qwertyuiop";
-        Xmodules.signing.cmd_signing_setup([sk])
+        sysid = 1
+        Xmodules.signing.cmd_signing_setup([sk,sysid])
   }
 
   // 'undo signing' aka ss aka python self.cmd_signing_setup(args[1:])
@@ -777,6 +825,9 @@ var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_ud
         return; 
     }
 
+    // don't allow sysid of 255 to be stored.
+    if (message._header.srcSystem == 255 ) { return;  }
+
   // it's been parsed, and must be a valid mavlink packet, and thus must have a sysid available now..
     if (  sysid_to_ip_address[message._header.srcSystem] == null )  {
           console.log(`Got first PARSED MSG from sysid:${message._header.srcSystem} src:${ip}:${port}, mav-proto:${mavlinktype}. Not repeating this. `);
@@ -827,11 +878,12 @@ udpserver.on('message', (msg, rinfo) => {
     // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
 
     // if there's no readable packets in the byte stream, dont try to iterate over it
-    //if (packetlist == null ) return;
+    if (packetlist == null ) return;
 
-    for (msg of packetlist){  
-        mavlink_ip_and_port_handler(msg,rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
-    }
+    // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
+//    for (msg of packetlist){  
+    mavlink_ip_and_port_handler(packetlist[0],rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
+//    }
 
     //console.log(msg);    
     //console.log(array_of_chars);
@@ -927,6 +979,7 @@ mavlinkParser2.on('message', generic_message_handler);
 
 // lookup table we populate later.
 sysid_to_ip_address = {};
+var broadcast_ip_address = undefined; 
 sysid_to_mavlink_type = {};
 
 
@@ -1093,6 +1146,10 @@ var heartbeat_handler =  function(message) {
     //console.log(message);
     //console.log(`got HEARTBEAT with ID: ${message._header.srcSystem}`);
     var tmp_sysid = message._header.srcSystem;
+
+    // don't allow messages that appear to come from 255 to be hadled.
+    if (message._header.srcSystem == 255 ) { return;  }
+
     var current_vehicle = set_current(tmp_sysid) // returns the entire vehicle object also sets __current_vehicle global for elsewhere
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
@@ -1119,6 +1176,7 @@ var heartbeat_handler =  function(message) {
                             "type": vehicle_type });
 
         //console.log("UPDATE:"+JSON.stringify(AllVehicles));
+
     // we only CREATE new vehicle object/s when we successfully see a HEARTBEAT from them:
     } else { 
         var tmpVehicle = new VehicleClass({id:message._header.srcSystem});
