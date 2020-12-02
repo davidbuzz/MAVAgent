@@ -28,7 +28,7 @@
 //var mavlinkParser1 = new MAVLink10Processor(logger, 11,0);
 
 var {mavlink20, MAVLink20Processor} = require("./mav_v2.js"); 
-var mavlinkParser2 = new MAVLink20Processor(logger, 11,0);
+var mavlinkParser2 = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
 
 // create the output hooks for the parser/s
 // we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
@@ -64,7 +64,7 @@ generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
 
     const b = Buffer.from(buf);// convert from array object to Buffer so we can UDP send it.
 
- //   console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
+    //console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
     //console.log(b);
 
     // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
@@ -413,16 +413,13 @@ setTimeout(function(){
 // creating a SINGLE custom socket called 'var client' and connecting it....
 var client  = new net.Socket();
 
-//try {
 
-    client.connect({
-      host:'127.0.0.1',
-      port:5760
-    });
 
-//    } catch(e) {
-  //    console.log('ERR: unable to connect to SITL instance at TCP port 5760..', e.message);
-//}
+client.connect({
+  host:'127.0.0.1',
+  port:5760
+});
+
 
 client.on('connect',function(){
   console.log('Client: connection established with server');
@@ -445,6 +442,35 @@ client.on('connect',function(){
 
 });
 
+
+var client_set_stream_rates = function(rate,target_system,target_component) {
+
+// mavproxy uses a stream_rate of 4 on its links by default, so we'll just use that...
+
+//target_system, target_component, req_stream_id, req_message_rate, start_stop
+
+    var rsr = new mavlink20.messages.request_data_stream(target_system,target_component,
+                                mavlink20.MAV_DATA_STREAM_ALL,rate, 1);
+
+    mavlinkParser2.send(rsr); 
+    console.log('Set Stream Rates =4');
+}
+
+var last_pkt_cnt = 0;
+var rate = 0;
+var show_stream_rates = function() {
+
+    var newrate = (mavlinkParser2.total_packets_received- last_pkt_cnt);
+
+    // allow a bit of jitter without reporting it
+    if ( Math.abs(rate - newrate) > 40) {
+        console.log("streamrate changed",newrate,"p/s");
+    }
+    if (rate == 0) { rate = newrate;} else {  rate = ((rate*4)+newrate)/5; }
+
+    last_pkt_cnt = mavlinkParser2.total_packets_received;
+
+}
 
 var client_send_heartbeat = function() {
 
@@ -526,6 +552,12 @@ client.on('data',function(msg){ // msg = a Buffer() of data
 
 client.on('error',function(error){
   console.log('' + error + " - unable to connect to SITL instance at tcp:localhost:5760 ");
+
+    client.connect({
+      host:'127.0.0.1',
+      port:5760
+    });
+
 });
 
 // don't disconenct after A FIXED AMOUNT OF TIME..
@@ -536,6 +568,8 @@ client.on('error',function(error){
 // heartbeat handler at 1hz
 var heartbeat_interval = setInterval(function(){
   client_send_heartbeat(); // types '>' on console 
+
+  show_stream_rates()
 },1000);
 // clear with clearInterval(heartbeat_interval)
 
@@ -818,6 +852,8 @@ rl.on("close", function() {
 
 // after INCOMiNG MAVLINK goes thru the mavlink parser , it dispatches them to here where we save the source ip/port for each sysid
 var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_udp) {
+
+    if (message === undefined) { return ; }
 
     if (typeof message._header == 'undefined'){ 
         //console.log('message._header UNDEFINED, skipping packet:'); 
@@ -1103,7 +1139,7 @@ return __current_vehicle = AllVehicles.get(tmp_sysid);
 }
 function set_current(tmp_sysid){
     if ((__current_vehicle !== undefined ) && (__current_vehicle.id != tmp_sysid)) {
-      console.log("selected curent vehicle as:"+tmp_sysid)
+      console.log("selected current vehicle as:"+tmp_sysid)
     }
     __current_vehicle = AllVehicles.get(tmp_sysid);
     return __current_vehicle;
@@ -1179,17 +1215,21 @@ var heartbeat_handler =  function(message) {
 
     // we only CREATE new vehicle object/s when we successfully see a HEARTBEAT from them:
     } else { 
+
+        // don't try to creat the vehocle till we know its IP, this might delay us by one heartbeat packet.
+        //if (sysid_to_ip_address[sysid] === undefined){ return ;}
+
         var tmpVehicle = new VehicleClass({id:message._header.srcSystem});
         // put the modified temporary object back onto the collection
         AllVehicles.add(tmpVehicle, {merge: true}); // 'add' can do "update" when merge=true, in case theres 2 of them somehow.
         //console.log("ADD:"+JSON.stringify(AllVehicles));
 
+        client_set_stream_rates(4,message._header.srcSystem,message._header.srcComponent);
+
         // assemble a new MavFlightMode hook to watch for this sysid:
         //mavFlightModes.push(new MavFlightMode(mavlink10, mavlinkParser1, null, logger,tmp_sysid));
         // todo
         mavFlightModes.push(new MavFlightMode(mavlink20, mavlinkParser2, null, logger,tmp_sysid));
-
-
 
         // re-hook all the MavFlightMode objects to their respective events, since we just added a new one.
         mavFlightModes.forEach(  function(m) {

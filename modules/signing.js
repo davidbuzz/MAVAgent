@@ -52,9 +52,9 @@ var Signing = function (m,mp) {
    this.on('HUD', function (data) 
     {
 
-    // no need to process all HUD msgs, every 10th or so is enough.
+    // no need to process all HUD msgs, every 5th or so is enough.
     this.freq = this.freq+1;
-    if (this.freq < 10 ) return;
+    if (this.freq < 5 ) return;
     this.freq = 0;
     
     //console.log('[signing] got HUD msg');
