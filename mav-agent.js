@@ -631,7 +631,7 @@ function __unloadModule(moduleName) {
   if (nodeModule) {
     for (var i = 0; i < nodeModule.children.length; i++) {
       var child = nodeModule.children[i];
-      deleteModule(child.filename);
+      __unloadModule(child.filename); // recursive call
     }
     delete require.cache[solvedName];
   }
@@ -739,46 +739,37 @@ process_cmdline = function(cmdline) {
 
     // print cmd line if non-empty
     if (args.length > 0 ) {  console.log("--",args,"--                              "); } // extra whitespace to clear rest of line
-  
     // q=  quit
     if (args[0] == "q") { process.exit(0); }
-
     // a = load All modules
-    if (args[0] == "a") { 
-        LoadModules(); 
+    if (args[0] == "a") {   LoadModules();  }
 
-        //console.log("hello function....:",modules.hello.hello);
-        //console.log("hello result....:",modules.hello.hello());
-        //console.log("hello additon....:",modules.hello.addition(8, 10));
-    }
 
     if (args[0] == "ub") { 
         unloadModule('better','./modules/better.js');
-
     }
-
     // b = load 'better' module as an example
     if (args[0] == "b") { 
         loadModule('better','./modules/better.js');
     }
 
-    // if (args[0] == "l") { 
-    //     loadModule('signing','./modules/signing.js'); = see 'ss'
-    // }
-
-    // s = show signing object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
-    if (args[0] == "s") { 
+    // d = show signing debug object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
+    if (args[0] == "d") { 
         //console.log(Xmodules.signing);//lrg
         //console.log(Xmodules.signing.mp);//med, 1 screen
         //console.log(Xmodules.signing.mp.signing);//sml, a few lines
         console.log(mavlinkParser2);
     }
 
-    // d = signing debug - show internal state variable of the signing module
-    if (args[0] == "d") { 
+    // s = signing show internal state variable of the signing module
+    if (args[0] == "s") { 
         loadModule('signing','./modules/signing.js');
 
         console.log(Xmodules.signing.show_state());
+    }
+    // us= unload signing
+    if (args[0] == "us") { 
+        unloadModule('signing','./modules/signing.js');
     }
 
   // ss = 'signing setup' aka ss aka python self.cmd_signing_setup(args[1:])
@@ -804,6 +795,28 @@ process_cmdline = function(cmdline) {
     for (const key in Xmodules ){
         console.log("\tmodule:",key );
     }
+  }
+
+  // h for help, or ? 
+  if ((args[0] == "h")||(args[0] == "?")) { 
+        console.log("\tAvailable commands:" );
+        console.log("\t-------------------");
+        console.log("\tq  - Quit" );
+        console.log("\th  - this Help text" );
+        console.log("");
+        console.log("\td  - Debug Dump of MAVLink20Processor and MAVLinkSigning objects, full stats and highlighting." );
+        console.log("");
+        console.log("\ta  - load All avail modules" );
+        console.log("\tm  - list loaded Modules" );
+        console.log("");
+        console.log("\tb  - load 'Better' module, demo, etc ,it will try to ARM your vehicle and keep it armed." );
+        console.log("\tub  - Unload 'Better' module , might want to do this before usig 'ss' " );
+        console.log("");
+        console.log("\ts  - load 'Signing' module, which reports on signing events/status." );
+        console.log("\tss - Setup Signing, quite complex, but tries to DISARM, then activate SIGNING on this connection" );
+        console.log("\tuu - Deactivate Signing on this connection (uu undoes the work of ss )" );
+        console.log("\tus - Unload 'Signing' module" );
+        console.log("");
   }
   
 }
