@@ -33,7 +33,7 @@ var mavlinkParser2 = new MAVLink20Processor(logger, 11,0);
 // create the output hooks for the parser/s
 // we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
 // and we accept ip/port either as part of the mavmsg object, or as a sysid in the OPTIONAL 2nd parameter
-generic_mav_udp_sender = function(mavmsg,sysid) {
+generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
     // this is really just part of the original send()
     buf = mavmsg.pack(this);
 
@@ -43,24 +43,31 @@ generic_mav_udp_sender = function(mavmsg,sysid) {
         //console.log(sysid);
         mavmsg.ip = sysid_to_ip_address[sysid].ip;
         mavmsg.port = sysid_to_ip_address[sysid].port;
+        mavmsg.type = sysid_to_ip_address[sysid].type; // 'tcp' or 'udp'
     }
     if (mavmsg.ip == undefined || mavmsg.port == undefined){
         console.log("unable to determine SEND ip/port from packet or sysid, sorry, discarding. sysid:${sysid}  msg:${mavmsg}");
         return;
     }
     // at startup, till we've had at least one INCOMING packet, we can't send.
-    if (udpserver.have_we_recieved_anything_yet == null ) { 
-        console.log('mavlink write not possible yet,dropped packet.');
+    if ((mavmsg.type == "udp")&&(udpserver.have_we_recieved_anything_yet == null )) { 
+        console.log('mavlink udp write not possible yet,dropped packet.');
         return;
     } 
 
     const b = Buffer.from(buf);// convert from array object to Buffer so we can UDP send it.
 
-    console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} `);
+    console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
     //console.log(b);
 
     // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
-    udpserver.send( b, mavmsg.port, mavmsg.ip ); 
+    if (mavmsg.type == "udp") {
+        udpserver.send( b, mavmsg.port, mavmsg.ip ); 
+    }
+
+    if (mavmsg.type == "tcp") {
+        client.write( b ); // already open, we hope
+    }
 
     // this is really just part of the original send()
     this.seq = (this.seq + 1) % 256;
@@ -68,9 +75,9 @@ generic_mav_udp_sender = function(mavmsg,sysid) {
     this.total_bytes_sent += buf.length;
 }
 //var origsend1 = MAVLink10Processor.prototype.send;
-//MAVLink10Processor.prototype.send = generic_mav_udp_sender
+//MAVLink10Processor.prototype.send = generic_mav_udp_and_tcp_sender
 //var origsend2 = MAVLink20Processor.prototype.send;
-MAVLink20Processor.prototype.send = generic_mav_udp_sender
+MAVLink20Processor.prototype.send = generic_mav_udp_and_tcp_sender
 
 // most modules are loadable/unloadable, but these few here aren't right now.
 var MavParams = require("./modules/mavParam.js");   // these are server-side js libraries for handling some more complicated bits of mavlink
@@ -225,6 +232,295 @@ IONameSpace = '/MAVControl';
 const dgram = require('dgram');
 const udpserver = dgram.createSocket('udp4');
 
+
+//-----------------------------------------------------------------------------------------------
+// also setup TCP server and tcp client as connection options
+
+var net = require('net');
+
+/*
+
+// creates the server
+var server = net.createServer();
+
+//emitted when server closes ...not emitted until all connections closes.
+server.on('close',function(){
+  console.log('TCP Server closed !');
+});
+
+
+// emitted when new client connects
+server.on('connection',function(socket){
+
+//this property shows the number of characters currently buffered to be written. (Number of characters is approximately equal to the number of bytes to be written, but the buffer may contain strings, and the strings are lazily encoded, so the exact number of bytes is not known.)
+//Users who experience large or growing bufferSize should attempt to "throttle" the data flows in their program with pause() and resume().
+
+  console.log('Buffer size : ' + socket.bufferSize);
+
+  console.log('---------TCP server details -----------------');
+
+  var address = server.address();
+  var port = address.port;
+  var family = address.family;
+  var ipaddr = address.address;
+  console.log('Server is listening at port: ' + port);
+  console.log('Server ip :' + ipaddr);
+  console.log('Server is IP4/IP6 : ' + family);
+
+  var lport = socket.localPort;
+  var laddr = socket.localAddress;
+  console.log('Server is listening at LOCAL port: ' + lport);
+  console.log('Server LOCAL ip :' + laddr);
+
+  console.log('------------remote client info --------------');
+
+  var rport = socket.remotePort;
+  var raddr = socket.remoteAddress;
+  var rfamily = socket.remoteFamily;
+
+  console.log('REMOTE Socket is connected from remote port: ' + rport);
+  console.log('REMOTE Socket ip :' + raddr);
+  console.log('REMOTE Socket is IP4/IP6 : ' + rfamily);
+
+  console.log('--------------------------------------------')
+//var no_of_connections =  server.getConnections(); // sychronous version
+server.getConnections(function(error,count){
+  console.log('Number of concurrent connections to the server : ' + count);
+});
+
+socket.setEncoding('utf8');
+
+socket.setTimeout(800000,function(){
+  // called after timeout -> same as socket.on('timeout')
+  // it just tells that soket timed out => its ur job to end or destroy the socket.
+  // socket.end() vs socket.destroy() => end allows us to send final data and allows some i/o activity to finish before destroying the socket
+  // whereas destroy kills the socket immediately irrespective of whether any i/o operation is goin on or not...force destry takes place
+  console.log('Socket timed out');
+});
+
+
+socket.on('data',function(data){
+  var bread = socket.bytesRead;
+  var bwrite = socket.bytesWritten;
+  console.log('Bytes read : ' + bread);
+  console.log('Bytes written : ' + bwrite);
+  console.log('Data sent to server : ' + data);
+
+  //echo data
+  var is_kernel_buffer_full = socket.write('Data ::' + data);
+  if(is_kernel_buffer_full){
+    console.log('Data was flushed successfully from kernel buffer i.e written successfully!');
+  }else{
+    socket.pause();
+  }
+
+});
+
+socket.on('drain',function(){
+  console.log('write buffer is empty now .. u can resume the writable stream');
+  socket.resume();
+});
+
+socket.on('error',function(error){
+  console.log('Error : ' + error);
+});
+
+socket.on('timeout',function(){
+  console.log('Socket timed out !');
+  socket.end('Timed out!');
+  // can call socket.destroy() here too.
+});
+
+socket.on('end',function(data){
+  console.log('Socket ended from other end!');
+  console.log('End data : ' + data);
+});
+
+socket.on('close',function(error){
+  var bread = socket.bytesRead;
+  var bwrite = socket.bytesWritten;
+  console.log('Bytes read : ' + bread);
+  console.log('Bytes written : ' + bwrite);
+  console.log('Socket closed!');
+  if(error){
+    console.log('Socket was closed coz of transmission error');
+  }
+}); 
+
+setTimeout(function(){
+  var isdestroyed = socket.destroyed;
+  console.log('Socket destroyed:' + isdestroyed);
+  socket.destroy();
+},1200000);
+
+});
+
+// emits when any error occurs -> calls closed event immediately after this.
+server.on('error',function(error){
+  console.log('Error: ' + error);
+});
+
+//emits when server is bound with server.listen
+server.on('listening',function(){
+  console.log('TCP Server is listening - on port 2222');
+});
+
+server.maxConnections = 10;
+
+//static port allocation
+server.listen(2222);
+
+*/
+
+// for dyanmic port allocation
+/*
+server.listen(function(){
+  var address = server.address();
+  var port = address.port;
+  var family = address.family;
+  var ipaddr = address.address;
+  console.log('Server is listening at port' + port);
+  console.log('Server ip :' + ipaddr);
+  console.log('Server is IP4/IP6 : ' + family);
+});
+
+
+
+var islistening = server.listening;
+
+if(islistening){
+  console.log('Server is listening');
+}else{
+  console.log('Server is not listening');
+}
+
+setTimeout(function(){
+  server.close();
+},5000000);
+
+*/
+
+//----------------------------------------------------------------------------------
+//---------------------client----------------------
+
+// creating a SINGLE custom socket called 'var client' and connecting it....
+var client  = new net.Socket();
+client.connect({
+  host:'127.0.0.1',
+  port:5760
+});
+
+client.on('connect',function(){
+  console.log('Client: connection established with server');
+
+  console.log('---------client details -----------------');
+  var address = client.address();
+  var port = address.port;
+  var family = address.family;
+  var ipaddr = address.address;
+  console.log('Client is connected and recieving on local port: ' + port);
+  console.log('Client ip :' + ipaddr);
+  console.log('Client is IP4/IP6 : ' + family);
+
+
+  // writing data to server
+  //client.write('hello from client');// we send something so server doesnt drop us
+
+});
+
+//client.setEncoding('utf8'); causes socket to use strings, not buffers, bad for binary data
+
+// convenient global
+var mavlinktype = undefined;
+
+// UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
+client.on('data',function(msg){ // msg = a Buffer() of data
+
+
+  var rinfo = client.address() // return { address: '127.0.0.1', family: 'IPv4', port: 40860 }
+
+  //console.log('Data from server:' , rinfo, msg.length);//, msg );
+
+    //client.write('hello from client');
+
+
+  //  if (udpserver.have_we_recieved_anything_yet == null ) { udpserver.have_we_recieved_anything_yet = true } 
+
+    var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
+    //console.log("\nUDPRAW:"+array_of_chars+" len:"+array_of_chars.length);
+
+    var packetlist = [];
+
+    if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
+        console.log("found mavlink2 header");
+        mavlinktype = 2;
+    }
+    packetlist = mavlinkParser2.parseBuffer(array_of_chars); 
+
+    // filter the packets
+    function isGood(element, index, array) {
+      return element._id != -1;
+    }
+
+   // if there's no readable packets in the byte stream, dont try to iterate over it
+    if (packetlist == null ) return;
+
+    goodpackets = packetlist.filter(isGood);
+
+    //console.log(packetlist);
+    //console.log(goodpackets);
+
+    //parseBuffer CAN and does 'emit' messages with the parsed result, because of the 'generic' capture/s elsewhere using mavlinkParser1.on(..) 
+    // , the packets trigger a call to mavlink_ip_and_port_handler with the result, but no ip/port data would be kept through 
+    //   the 'emit()' process, so we ALSO return the array-of-chars as an array of mavlink packets, possibly 'none', [ p] single packet , or [p,p,p] packets.
+    // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
+
+ 
+    //console.log("packet count (all/good): ", packetlist.length,goodpackets.length)
+
+    for (msg of goodpackets){  
+        mavlink_ip_and_port_handler(msg,rinfo.address,rinfo.port,mavlinktype , "tcp");  // [1] = ip  and [2] = port
+    }
+
+});
+
+client.on('error',function(error){
+  console.log('' + error + " - unable to connect to SITL instance at tcp:localhost:5760 ");
+});
+
+// don't disconenct after A FIXED AMOUNT OF TIME..
+//setTimeout(function(){
+//  client.end('Bye bye server');
+//},5000);
+
+//NOTE:--> all the events of the socket are applicable here..in client...
+
+
+// -----------------creating client using net.connect instead of custom socket-------
+
+// server creation using net.connect --->
+// u can also => write the below code in seperate js file
+// open new node instance => and run it...
+
+/*
+const clients = net.connect({port: 2222}, () => {
+  // 'connect' listener
+  console.log('connected to server!');
+  clients.write('world!\r\n');
+});
+clients.on('data', (data) => {
+  console.log(data.toString());
+  clients.end();
+});
+clients.on('end', () => {
+  console.log('disconnected from server');
+});
+*/
+
+//----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+
+
 //-------------------------------------------------------------
 //
 // module handling
@@ -357,15 +653,22 @@ process_cmdline = function(cmdline) {
 
     }
 
+  if (args[0] == "b") { 
+  loadModule('better','./modules/better.js');
+  }
+
 //  if (args[0] == "l") { 
   loadModule('signing','./modules/signing.js');
  // }
 
   // s = show signing object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
   if (args[0] == "s") { 
-        //console.log(Xmodules.signing);
-        console.log(Xmodules.signing.mp);
-        //console.log(Xmodules.signing.mp.signing);
+        //console.log(Xmodules.signing);//lrg
+        //console.log(Xmodules.signing.mp);//med, 1 screen
+        //console.log(Xmodules.signing.mp.signing);//sml, a few lines
+
+        console.log(mavlinkParser2);
+
   }
 
 // debug
@@ -412,7 +715,7 @@ process.stdin.on('readable', function () {
 
     partialine = [];
 
-    process.stdout.write("\nMAVJS-"+MODE+">"+SYSID+"> ");
+    process.stdout.write("\nMAVAGENT-"+MODE+">"+SYSID+"> ");
 
   }
 
@@ -466,7 +769,7 @@ rl.on("close", function() {
 //-------------------------------------------------------------
 
 // after INCOMiNG MAVLINK goes thru the mavlink parser , it dispatches them to here where we save the source ip/port for each sysid
-var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype) {
+var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_udp) {
 
     if (typeof message._header == 'undefined'){ 
         //console.log('message._header UNDEFINED, skipping packet:'); 
@@ -479,7 +782,7 @@ var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype) {
           console.log(`Got first PARSED MSG from sysid:${message._header.srcSystem} src:${ip}:${port}, mav-proto:${mavlinktype}. Not repeating this. `);
     }
     // by having this inside the above if() the source port and ip can't change without a page reload, having it below, it keeps uptodate.
-    sysid_to_ip_address[message._header.srcSystem] = {'ip':ip, 'port':port}; 
+    sysid_to_ip_address[message._header.srcSystem] = {'ip':ip, 'port':port, 'type':tcp_or_udp }; 
     sysid_to_mavlink_type[message._header.srcSystem] =    mavlinktype; // 1 or 2
 
 
@@ -493,6 +796,7 @@ udpserver.on('error', (err) => {
   webserver.close();
 });
 
+// UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
 udpserver.on('message', (msg, rinfo) => {
     //console.log(udpserver.have_we_recieved_anything_yet);
     //console.log(rinfo);
@@ -523,10 +827,10 @@ udpserver.on('message', (msg, rinfo) => {
     // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
 
     // if there's no readable packets in the byte stream, dont try to iterate over it
-    if (packetlist == null ) return;
+    //if (packetlist == null ) return;
 
     for (msg of packetlist){  
-        mavlink_ip_and_port_handler(msg,rinfo.address,rinfo.port,mavlinktype );  // [1] = ip  and [2] = port
+        mavlink_ip_and_port_handler(msg,rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
     }
 
     //console.log(msg);    
@@ -836,7 +1140,7 @@ var heartbeat_handler =  function(message) {
 
             // this event is generated locally by mavFlightMode.js, and it passed the entire 'state' AND sysid as params
             m.on('change', function(state,sysid) {
-                console.log(`\n--Got a MODE-CHANGE message from ${sysid_to_ip_address[sysid].ip}:${sysid_to_ip_address[sysid].port} `);
+                console.log(`\n--Got a MODE-CHANGE message from ${sysid_to_ip_address[sysid].ip}:${sysid_to_ip_address[sysid].port} ${sysid_to_ip_address[sysid].type}`);
                 console.log(`... with armed-state: ${state.armed} and sysid: ${sysid} and mode: ${state.mode}`);
 
                 // change the mode in the state subsystem to match this, but only if its changed.
