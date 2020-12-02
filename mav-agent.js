@@ -640,6 +640,9 @@ function LoadModules() {
             if(dot.length == 2) {
               let key = dot[0];
 
+              // skip special not-quite-modules , where their file name starts with 'mav'
+              if (key.startsWith('mav') ) { return;  }
+
               loadModule(key,file);
 
 /*
