@@ -29,6 +29,7 @@ var Signing = function (m,mp) {
     this.goodsig_count = 0; // count of sigs that pass
     this.unsigned_count = 0; // count of unsigned packets that were let through WHILE SIGNING - due to 'allow unsigned' policy/callback
     this.total_packet_count = 0; // count of any packets arriving irrespective of signature validity etc.
+    this.delayed_ss = undefined;
 
 // 0 means we are verified as working fully UNSIGNED, 1 means SIGNED, 2 means ignoring signatures and working UNSIGNED, undef means dont know yet.
     this.verification_state = undefined ;  
@@ -67,7 +68,6 @@ var Signing = function (m,mp) {
             }
             return false
         }
-
         var any_sigs_arriving = function(t) {  
             if ( t.mp.signing.sig_count > t.sig_count ) {
                 t.sig_count = t.mp.signing.sig_count;
@@ -82,15 +82,9 @@ var Signing = function (m,mp) {
             }
             return false
         }
-
         var packets = packets_flowing(this);
         var anysigs = any_sigs_arriving(this);
         var goodsigs = good_sigs_arriving(this);
-
-        // dordn't work here as this block is only triggered on actual HUD msgs.
-        //if (! packets ) {
-        //   console.log('\n[signing] LINK APPEARS DOWN, sorry. ');  
-        //}
 
        // goodsig_count increasing indicates signing is ON.
        if ((this.verification_state != 1) && packets && anysigs && goodsigs ) {  
@@ -120,11 +114,10 @@ var Signing = function (m,mp) {
          this.show_state()
        }
 
-       if (this.mp !== undefined ) { 
+       // try to disarm, but only if signing isnt already active and there's at least some sort of data stream
+       if ( (this.delayed_ss !== undefined ) && packets && (this.verification_state != 1) && (this.mp !== undefined )) { 
             if ( this.is_armed == true) {
                 if (this.sysid !== undefined) {
-                    var m = this.m;  
-                    var mp = this.parser; // mp means 'Mavlink Parser'
 
                     var target_system = this.sysid, target_component = 0, command = m.MAV_CMD_COMPONENT_ARM_DISARM, confirmation = 0, 
                         param1 = 0, param2 = 0, param3 = 0, param4 = 0, param5 = 0, param6 = 0, param7 = 0;
@@ -149,6 +142,11 @@ var Signing = function (m,mp) {
        if (this.is_armed != data.armed) {
              if (data.armed == false ) console.log("[signing] DISARM-ed sysid:"+data.sysid);
              this.is_armed = data.armed;
+             if (this.delayed_ss !== undefined ) {
+                    var tmp = this.delayed_ss;
+                    this.delayed_ss = undefined;
+                    this.cmd_signing_setup(tmp);// try again
+                }
        }
     });
 
@@ -195,6 +193,13 @@ Signing.prototype.cmd_signing_setup = function(args) {
         if ( this.mp.signing === undefined ){
             print("You must be using recent MAVLink2 parser for signing")
             return}
+
+        // if armed or unsure of the arming state, delay the command till we know
+        if (this.is_armed !== false) { 
+            this.delayed_ss = args;
+            return;
+        }
+
         passphrase = args[0]
         secret_key = this.passphrase_to_key(passphrase) // key is a Buffer obj or the right type
 
