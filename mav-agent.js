@@ -1010,6 +1010,11 @@ var generic_message_handler = function(message) {
               message.param_id.startsWith('SR0_')  || 
               message.param_id.startsWith('ARSPD_OFFSET')  || 
               message.param_id.startsWith('MIS_TOTAL')  || 
+              message.param_id.startsWith('INS_GYR_ID')  || 
+              message.param_id.startsWith('INS_ACC_ID')  || 
+              message.param_id.startsWith('INS_GYR2_ID')  || 
+              message.param_id.startsWith('INS_ACC2_ID')  || 
+              message.param_id.startsWith('GND_ALT_OFFSET')  || 
               message.param_id.startsWith('GND_ABS_PRESS')  ){ 
             // pass
         } else { 
@@ -1265,8 +1270,7 @@ var heartbeat_handler =  function(message) {
     // we only CREATE new vehicle object/s when we successfully see a HEARTBEAT from them:
     } else { 
 
-        // don't try to creat the vehocle till we know its IP, this might delay us by one heartbeat packet.
-        //if (sysid_to_ip_address[sysid] === undefined){ return ;}
+
 
         var tmpVehicle = new VehicleClass({id:message._header.srcSystem});
         // put the modified temporary object back onto the collection
@@ -1287,6 +1291,10 @@ var heartbeat_handler =  function(message) {
 
             // this event is generated locally by mavFlightMode.js, and it passed the entire 'state' AND sysid as params
             m.on('change', function(state,sysid) {
+
+                // don't try to handle the vehicle till we know its IP, this might delay us by one heartbeat packet.
+                if (sysid_to_ip_address[sysid] === undefined){ return ;}
+
                 console.log(`\n--Got a MODE-CHANGE message from ${sysid_to_ip_address[sysid].ip}:${sysid_to_ip_address[sysid].port} ${sysid_to_ip_address[sysid].type}`);
                 console.log(`... with armed-state: ${state.armed} and sysid: ${sysid} and mode: ${state.mode}`);
 
@@ -1378,7 +1386,7 @@ var statustext_handler = function(message) {
 
         // drop everything including and after the first null byte.
         var _message = message.text.replace(/\0.*$/g,'');
-        console.log(`STATUSTEXT: ${_message}`);
+        console.log(`\nSTATUSTEXT: ${_message}`);
 
         // arm and disarm confirmation messages are handled like their own events, as they are important.
         if (_message == "Throttle armed" || _message == "Arming motors"){
