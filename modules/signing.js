@@ -140,7 +140,7 @@ var Signing = function (m,mp) {
        }
 
        if (this.is_armed != data.armed) {
-             if (data.armed == false ) console.log("[signing] DISARM-ed sysid:"+data.sysid);
+             if ((this.is_armed != undefined )&&(data.armed == false )) console.log("[signing] DISARM-ed sysid:"+data.sysid);
              this.is_armed = data.armed;
              if (this.delayed_ss !== undefined ) {
                     var tmp = this.delayed_ss;
