@@ -957,12 +957,15 @@ var generic_message_handler = function(message) {
 	console.log(message);  // emit any message type that we don't list above, as we dont know about it...
     } 
     // log PARAM_VALUE differently to exclude common ones like where param_id starts with 'STAT_RUNTIME' etc
+    // many of these are emitted on-boot and aren't interesting as 'normal params' 
     if (  ['PARAM_VALUE' ].includes(message._name) ) { 
         if (  message.param_id.startsWith('STAT_RUNTIME') || 
               message.param_id.startsWith('STAT_FLTTIME')  ||
               message.param_id.startsWith('STAT_RESET')  ||
               message.param_id.startsWith('COMPASS_')  ||
               message.param_id.startsWith('SR0_')  || 
+              message.param_id.startsWith('ARSPD_OFFSET')  || 
+              message.param_id.startsWith('MIS_TOTAL')  || 
               message.param_id.startsWith('GND_ABS_PRESS')  ){ 
             // pass
         } else { 
@@ -971,11 +974,10 @@ var generic_message_handler = function(message) {
     }
 
 
-    // display STATUSTEXT as simple console.log
-    if (  ['STATUSTEXT' ].includes(message._name) ) {
-        //console.log(`STATUSTEXT: ${message.text}`);    
-
-    } 
+//  display STATUSTEXT as simple console.log - STATUSTEXT handled elsewhere now
+//    if (  ['STATUSTEXT' ].includes(message._name) ) {
+//        //console.log(`STATUSTEXT: ${message.text}`);    
+//    } 
 
     if (  ['COMMAND_ACK' ].includes(message._name) ) {
         console.log(`COMMAND_ACK command= ${message.command} result= ${message.result} `);
