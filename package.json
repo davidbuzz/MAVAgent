@@ -1,0 +1,31 @@
+{
+  "author": "buzz",
+  "name": "MAVAgent",
+  "description": "a MAVProxy inspired Node.js JavaScript tool",
+  "version": "0.0.1",
+  "homepage": "https://github.com/davidbuzz/MAVAgent",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/davidbuzz/MAVAgent.git"
+  },
+  "main": "./mav-agent.js",
+  "engines": {
+    "node": ">=8.10.0"
+  },
+  "dependencies": {
+    "backbone": "^1.4.0",
+    "jspack": "file:local_modules/jspack",
+    "nconf": "0.10.0",
+    "q": "1.5.1",
+    "underscore": "1.4.3",
+    "long": "file:local_modules/long",
+    "winston": "3.2.1"
+  },
+  "scripts": {
+    "start": "node mav-agent.js"
+  },
+  "bugs": {
+    "url": "https://github.com/davidbuzz/MAVAgent/issues"
+  },
+  "license": "GNUv3"
+}
