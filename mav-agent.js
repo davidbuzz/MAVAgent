@@ -477,6 +477,18 @@ var show_stream_rates = function() {
 
 var client_send_heartbeat = function() {
 
+   //console.log(client);
+   //don't send unless we are connected, probably dont need all of these..
+   if (client.connecting == true ) {return; } // when other end wasnt there to start with
+
+   if (client.readable == false ) {
+        console.log("tcp not readable");
+        client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
+        return; 
+    }// when other end goes-away unexpectedly
+
+   //if (client._sockname == null ) {console.log("sockname is null");return; }
+
    var heartbeat = new mavlink20.messages.heartbeat(); 
       heartbeat.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
       heartbeat.type = 17; // fieldtype: uint8_t  isarray: False 
@@ -553,8 +565,14 @@ client.on('data',function(msg){ // msg = a Buffer() of data
 
 });
 
+// don't report same error more than 1hz..
+var last_error = undefined;
 client.on('error',function(error){
-  console.log('' + error + " - unable to connect to SITL instance at tcp:localhost:5760 ");
+
+    if (last_error != error.toString()) {
+    last_error = error.toString();
+    console.log('' + error + " - retrying...");
+  }
 
     client.connect({
       host:'127.0.0.1',
@@ -571,7 +589,7 @@ client.on('error',function(error){
 // heartbeat handler at 1hz
 var heartbeat_interval = setInterval(function(){
   client_send_heartbeat(); // types '>' on console 
-
+  last_error = undefined;
   show_stream_rates()
 },1000);
 // clear with clearInterval(heartbeat_interval)
