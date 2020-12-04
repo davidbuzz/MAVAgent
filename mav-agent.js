@@ -243,6 +243,11 @@ const dgram = require('dgram');
 const udpserver = dgram.createSocket('udp4');
 
 
+// set true when we se some soet of mavlink, either via tcp:localhost:5760 or as incoming udp stream
+// once UDP is successful, tcp stops connection-retrying.
+var ISUDPCONNECTED = false; 
+var ISTCPCONNECTED = false; 
+
 //-----------------------------------------------------------------------------------------------
 // also setup TCP server and tcp client as connection options
 
@@ -425,7 +430,10 @@ client.connect({
 
 
 client.on('connect',function(){
-  console.log('Client: connection established with server');
+
+  ISTCPCONNECTED = true; 
+
+  console.log('Client: connection established with TCP server');
 
   console.log('---------client details -----------------');
   var address = client.address();
@@ -437,6 +445,7 @@ client.on('connect',function(){
   console.log('Client is IP4/IP6 : ' + family);
 
 
+  // we know we can reply here, even without knowing the sysid...
   broadcast_ip_address = {'ip':ipaddr, 'port':port, 'type':'tcp' }; 
   client_send_heartbeat(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
 
@@ -461,15 +470,27 @@ var client_set_stream_rates = function(rate,target_system,target_component) {
 
 var last_pkt_cnt = 0;
 var rate = 0;
+var data_timeout = 0;
 var show_stream_rates = function() {
 
     var newrate = (mavlinkParser2.total_packets_received- last_pkt_cnt);
 
+    if (newrate == 0 ) {data_timeout++;} else {data_timeout=0;}
+
     // allow a bit of jitter without reporting it
-    if ( Math.abs(rate - newrate) > 40) {
-        console.log("streamrate changed",newrate,"p/s");
+    if (( Math.abs(rate - newrate) > 40)) {
+        console.log("streamrate changed:",newrate," trend:",rate,"p/s");
+    } 
+
+    // if "streamrate changed 0 p/s" for the 5 seconds then consider other end has gone away and warn...
+    if ((data_timeout > 5) && (ISUDPCONNECTED)) { 
+        console.log("incoing udp stream has gone away, sorry.");
+        ISUDPCONNECTED=false;
+        //data_timeout = 0;
     }
-    if (rate == 0) { rate = newrate;} else {  rate = ((rate*4)+newrate)/5; }
+
+    
+    if (rate == 0) { rate = newrate;} else {  rate = Math.floor(((rate*4)+newrate)/5); }
 
     last_pkt_cnt = mavlinkParser2.total_packets_received;
 
@@ -481,8 +502,11 @@ var client_send_heartbeat = function() {
    //don't send unless we are connected, probably dont need all of these..
    if (client.connecting == true ) {return; } // when other end wasnt there to start with
 
+  // don't sent tcp heartbeats if we are using udp.
+  if (ISUDPCONNECTED == true) {return;}
+
    if (client.readable == false ) {
-        console.log("tcp not readable");
+        //console.log("tcp not readable");
         client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
         return; 
     }// when other end goes-away unexpectedly
@@ -568,6 +592,13 @@ client.on('data',function(msg){ // msg = a Buffer() of data
 // don't report same error more than 1hz..
 var last_error = undefined;
 client.on('error',function(error){
+
+    if (ISUDPCONNECTED)  {  
+        console.log("using incoming UDP data, stopped retries on TCP");    
+        return;
+    }
+
+    ISTCPCONNECTED = false; 
 
     if (last_error != error.toString()) {
     last_error = error.toString();
@@ -944,6 +975,7 @@ var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_ud
 
 // hook udp listener events to actions:
 udpserver.on('error', (err) => {
+  ISUDPCONNECTED = false; 
   console.log(`server error:\n${err.stack}`);
   webserver.close();
 });
@@ -952,6 +984,11 @@ udpserver.on('error', (err) => {
 udpserver.on('message', (msg, rinfo) => {
     //console.log(udpserver.have_we_recieved_anything_yet);
     //console.log(rinfo);
+
+    // we don't know its sysid yet, but this means we can at least send broadcast/s like heartbeat
+    broadcast_ip_address = {'ip':rinfo.address,'port':rinfo.port, 'type':'udp' }; 
+
+    ISUDPCONNECTED = true; 
 
     // first time thru:
     if (udpserver.have_we_recieved_anything_yet == null ) { udpserver.have_we_recieved_anything_yet = true } 
