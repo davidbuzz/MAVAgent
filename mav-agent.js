@@ -200,9 +200,7 @@ console.log('[SerialPort] disconnect event');
 
 
 
-// mavlink related stuff:
-//var {mavlink10, MAVLink10Processor} = require("./mav_v1.js"); 
-//var mavlinkParser1 = new MAVLink10Processor(logger, 11,0);
+// mavlink 2 related stuff:
 
 var {mavlink20, MAVLink20Processor} = require("./mav_v2.js"); 
 var mavlinkParser2 = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
@@ -264,8 +262,7 @@ generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
     this.total_packets_sent +=1;
     this.total_bytes_sent += buf.length;
 }
-//var origsend1 = MAVLink10Processor.prototype.send;
-//MAVLink10Processor.prototype.send = generic_mav_udp_and_tcp_and_serial_sender
+
 //var origsend2 = MAVLink20Processor.prototype.send;
 MAVLink20Processor.prototype.send = generic_mav_udp_and_tcp_and_serial_sender
 
@@ -1020,13 +1017,13 @@ var sysid = 12; // lets assume just one sysid to start with.
 
 // looks for flight-mode changes on this specific sysid only
 var mavFlightModes = [];
-//mavFlightModes.push(new MavFlightMode(mavlink10, mavlinkParser1, null, logger,sysid));
+
 mavFlightModes.push(new MavFlightMode(mavlink20, mavlinkParser2, null, logger,sysid));
 
 
 // MavParams are for handling loading parameters
 // Just hacking/playing code for now, compiles but not properly tested.
-//var mavParams = new MavParams(mavlinkParser1,logger);
+
 var mavParams2 = new MavParams(mavlinkParser2,logger);
 
 
@@ -1219,8 +1216,6 @@ var heartbeat_handler =  function(message) {
         set_stream_rates(4,message._header.srcSystem,message._header.srcComponent);
 
         // assemble a new MavFlightMode hook to watch for this sysid:
-        //mavFlightModes.push(new MavFlightMode(mavlink10, mavlinkParser1, null, logger,tmp_sysid));
-        // todo
         mavFlightModes.push(new MavFlightMode(mavlink20, mavlinkParser2, null, logger,tmp_sysid));
 
         // re-hook all the MavFlightMode objects to their respective events, since we just added a new one.
@@ -1460,35 +1455,6 @@ function float(thing) {
 //
 //-------------------------------------------------------------
 
-function decide_which_mavlink_obj_and_return_it(id){
-        var mavlink = null;
-        switch (sysid_to_mavlink_type[id]) 
-        {
-            case 1:
-                return mavlink10;
-                break;
-            case 2:
-                return mavlink20;
-                break;
-            default:
-             console.log("ERROR, vehicle does not identify as MAVlINK1 or mAVLINK2!!!");
-        }
-}
-function decide_which_mavlink_parser_and_return_it(id){
-        var mavlink = null;
-        switch (sysid_to_mavlink_type[id]) 
-        {
-            case 1:
-                return mavlinkParser1;
-                break;
-            case 2:
-                return mavlinkParser2;
-                break;
-            default:
-             console.log("ERROR, vehicle does not identify as MAVlINK1 or mAVLINK2!!!");
-        }
-}
-
 
 nsp.on('connection', function(websocket) {
 
@@ -1509,28 +1475,24 @@ nsp.on('connection', function(websocket) {
     // websocket messages from the browser-GCS to us: 
 
     websocket.on('arm', function(sysid){
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid); // mp means 'Mavlink Parser'
 
-        var target_system = sysid, target_component = 0, command = m.MAV_CMD_COMPONENT_ARM_DISARM, confirmation = 0, 
+        var target_system = sysid, target_component = 0, command = mavlink20.MAV_CMD_COMPONENT_ARM_DISARM, confirmation = 0, 
             param1 = 1, param2 = 0, param3 = 0, param4 = 0, param5 = 0, param6 = 0, param7 = 0;
         // param1 is 1 to indicate arm
-        var command_long = new m.messages.command_long(target_system, target_component, command, confirmation, 
+        var command_long = new mavlink20.messages.command_long(target_system, target_component, command, confirmation, 
                                                          param1, param2, param3, param4, param5, param6, param7)
-        mp.send(command_long,sysid);
+        mavlinkParser2.send(command_long,sysid);
         console.log("arm sysid:"+sysid);
       });
 
     websocket.on('disarm', function(sysid){
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
-        var target_system = sysid, target_component = 0, command = m.MAV_CMD_COMPONENT_ARM_DISARM, confirmation = 0, 
+        var target_system = sysid, target_component = 0, command = mavlink20.MAV_CMD_COMPONENT_ARM_DISARM, confirmation = 0, 
             param1 = 0, param2 = 0, param3 = 0, param4 = 0, param5 = 0, param6 = 0, param7 = 0;
         // param1 is 0 to indicate disarm
-        var command_long = new m.messages.command_long(target_system, target_component, command, confirmation, 
+        var command_long = new mavlink20.messages.command_long(target_system, target_component, command, confirmation, 
                                                          param1, param2, param3, param4, param5, param6, param7)
-        mp.send(command_long,sysid);
+        mavlinkParser2.send(command_long,sysid);
         console.log("disarm sysid:"+sysid);
       });
 
@@ -1540,36 +1502,29 @@ nsp.on('connection', function(websocket) {
         else if (speed_type == "groundspeed")
             speed_type = 1;
 
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
-
-        var target_system = sysid, target_component = 0, command = m.MAV_CMD_DO_CHANGE_SPEED, confirmation = 0, 
+        var target_system = sysid, target_component = 0, command = mavlink20.MAV_CMD_DO_CHANGE_SPEED, confirmation = 0, 
             param1 = float(speed_type), param2 = float(speed), param3 = float(throttle), 
             // param4 is absolute or relative [0,1]
             param4 = 0, 
             param5 = 0, param6 = 0, param7 = 0;
-        var command_long = new m.messages.command_long(target_system, target_component, command, confirmation, 
+        var command_long = new mavlink20.messages.command_long(target_system, target_component, command, confirmation, 
                                                          param1, param2, param3, param4, param5, param6, param7)
-        mp.send(command_long,sysid);
+        mavlinkParser2.send(command_long,sysid);
         console.log(`do_change_speed sysid: ${sysid} to speed: ${speed}`);
     });
 
     websocket.on('do_change_altitude',  function(sysid,alt) { 
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
-        var target_system = sysid, target_component = 0, command = m.MAV_CMD_DO_CHANGE_ALTITUDE, confirmation = 0, 
+        var target_system = sysid, target_component = 0, command = mavlink20.MAV_CMD_DO_CHANGE_ALTITUDE, confirmation = 0, 
             // param2 = 3  means MAV_FRAME_GLOBAL_RELATIVE_ALT, see https://mavlink.io/en/messages/common.html#MAV_FRAME
             param1 = float(alt), param2 = 3, param3 = 0, param4 = 0, param5 = 0, param6 = 0, param7 = 0;
-        var command_long = new m.messages.command_long(target_system, target_component, command, confirmation, 
+        var command_long = new mavlink20.messages.command_long(target_system, target_component, command, confirmation, 
                                                          param1, param2, param3, param4, param5, param6, param7)
-        mp.send(command_long,sysid);
+        mavlinkParser2.send(command_long,sysid);
         console.log(`do_change_altitude sysid: ${sysid} to alt: ${alt}`);
     });
 
     websocket.on('do_change_mode',  function(sysid,mode) { 
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         // any instance of a MavFlightMode will do ,so we pick the Zeroth element of the list as it's probably there.
         var mode_mapping_inv = mavFlightModes[0].mode_mapping_inv();
@@ -1577,8 +1532,8 @@ nsp.on('connection', function(websocket) {
         modenum = mode_mapping_inv[mode];
         var target_system = sysid, /* base_mode = 217, */ custom_mode = modenum; 
 
-        set_mode_message = new m.messages.set_mode(target_system, m.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode);                        
-        mp.send(set_mode_message,sysid);
+        set_mode_message = new mavlink20.messages.set_mode(target_system, mavlink20.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, custom_mode);                        
+        mavlinkParser2.send(set_mode_message,sysid);
                      
         console.log(`do_change_mode sysid: ${sysid} to mode: ${mode}`);
         console.log(set_mode_message);
@@ -1586,13 +1541,11 @@ nsp.on('connection', function(websocket) {
 
     // 
     websocket.on('set_wp', function(sysid,seq) {  
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         var target_system = sysid, target_component = 0;
-        var mission_set_current = new m.messages.mission_set_current(target_system, target_component, seq);
+        var mission_set_current = new mavlink20.messages.mission_set_current(target_system, target_component, seq);
 
-        mp.send(mission_set_current,sysid);
+        mavlinkParser2.send(mission_set_current,sysid);
         console.log(`set_wp/mission_set_current sysid: ${sysid} to alt: ${seq}`);
         
     });
@@ -1601,11 +1554,9 @@ nsp.on('connection', function(websocket) {
 
     // we don't try to get missions or even run the get-mission code unless the client asks us to.
     websocket.on('enableGetMission', function(sysid,msg) {
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         console.log('ENABLING MISSION GETTING')
-        var mm= new MavMission(m, mp, null, logger);
+        var mm= new MavMission(mavlink20, mavlinkParser2 , null, logger);
         mm.enableGetMission();
 
         // after getting mission re-load to plane as a rtest
@@ -1613,11 +1564,9 @@ nsp.on('connection', function(websocket) {
     });
 
     websocket.on('loadMission', function(sysid,msg) {
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         console.log('LOADING MISSION')
-        var mm= new MavMission(m, mp, null, logger);
+        var mm= new MavMission(mavlink20, mavlinkParser2 , null, logger);
         mm.loadMission();
 
      });
@@ -1628,39 +1577,34 @@ nsp.on('connection', function(websocket) {
 /*  untested
     // setGuided
     websocket.on('setGuided',function(sysid) {
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         var target_system = sysid;
-        message = new m.messages.set_mode(target_system, m.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 4);                        
-        //buffer = new Buffer(message.pack(mp));
+        message = new mavlink20.messages.set_mode(target_system, mavlink20.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 4);                        
+        //buffer = new Buffer(message.pack(mavlinkParser2));
         //connection.write(buffer)
-        mp.send(message,sysid);
+        mavlinkParser2.send(message,sysid);
         console.log('Set guided mode');  
     }
 
     //takeOff
     websocket.on('takeOff',function(sysid) {
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
 
         var target_system = sysid;
-        message = new m.messages.command_long(target_system, 0, m.MAV_CMD_NAV_TAKEOFF, 0,  0, 0 ,0, 0, -35.363261, 149.165230, 10);                        
-        //buffer = new Buffer(message.pack(mp));
+        message = new mavlink20.messages.command_long(target_system, 0, mavlink20.MAV_CMD_NAV_TAKEOFF, 0,  0, 0 ,0, 0, -35.363261, 149.165230, 10);                        
+        //buffer = new Buffer(message.pack(mavlinkParser2));
         //connection.write(buffer)
-        mp.send(message,sysid);
+        mavlinkParser2.send(message,sysid);
         console.log('Takeoff');  
     }
 
     //streamAll
     websocket.on('streamAll',function(sysid) {
-        var m = decide_which_mavlink_obj_and_return_it(sysid);  
-        var mp = decide_which_mavlink_parser_and_return_it(sysid);
+
         var target_system = sysid;
-        message = new m.messages.request_data_stream(target_system, 1, m.MAV_DATA_STREAM_ALL, 1, 1);
-        //buffer = new Buffer(message.pack(mp));
+        message = new mavlink20.messages.request_data_stream(target_system, 1, mavlink20.MAV_DATA_STREAM_ALL, 1, 1);
+        //buffer = new Buffer(message.pack(mavlinkParser2));
         //connection.write(buffer);
-        mp.send(message,sysid);
+        mavlinkParser2.send(message,sysid);
     }
 */
 
