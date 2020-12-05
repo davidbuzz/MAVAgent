@@ -7,10 +7,7 @@
 
 
 // Derived from some of my earlier work that had express,webserver,socketio for mavcontrol.. these lines below NOT current, but if u want something that uses them, this script and MAVControl/mavudp_to_ws_server.js from github are totally going to interest u.
-// uses a websockets enabled web server 
-// a web-based GCS that is a version of MAVControl. 
-// display of the HUD and MAP etc. 
-// uses express 4 + socket.io and  
+
 // delivers most static content from /static and socketio stuff from /socket.io and /node_index.html is the main page.
 
 
@@ -188,12 +185,7 @@ console.log('[SerialPort] disconnect event');
     // serialport.isOpen boolean
 
     //SerialPort Stream object is a Node.js transform stream and implements the standard data and 
-    //          error events in addition to a few others.
-    // open
-    // error
-    //close
-    //data
-    //drain
+    //          error events in addition to a few others:open,error,close,data,drain
 
     // serial-specific
     var heartbeat_interval = setInterval(function(){
@@ -207,13 +199,6 @@ console.log('[SerialPort] disconnect event');
 }
 
 
-//process.exit(0)
-
-// web server stuff:
-//var app = require('express')();
-//var webserver = require('http').Server(app);
-//var io = require('socket.io')(webserver);
-//var express = require('express'); // we use 'app' mostly, but need this too.
 
 // mavlink related stuff:
 //var {mavlink10, MAVLink10Processor} = require("./mav_v1.js"); 
@@ -295,14 +280,6 @@ console.log(JSON.stringify(MavFlightMode));
 var nconf = require("nconf");
 var Backbone = require("backbone");
 
-// interactive cmd-line like mavproxy
-//const readline = require("readline");
-//const rl = readline.createInterface({
-//    input: process.stdin,
-//    output: process.stdout
-//});
-
-
 
 //-------------------------------------------------------------
 //
@@ -313,8 +290,6 @@ var Backbone = require("backbone");
 
 require('events').EventEmitter.defaultMaxListeners = 0;
 
-// leave this zero unless u plan on running more than one of this script at a time, it adds onto the UDP listening port AND the webserver port.
-offset = 0;
 
 // Logger
 var logger = null;//console; //winston.createLogger({transports:[new(winston.transports.File)({ filename:'mavlink.dev.log'})]});
@@ -324,9 +299,8 @@ var logger = null;//console; //winston.createLogger({transports:[new(winston.tra
 var MODE = 'UNKNOWN';
 var SYSID = ' ';
 
-// non-constructing modules
+// modules
 var modules = {};
-
 // self-constructing modules
 var Xmodules = {};
 
@@ -356,23 +330,8 @@ _emitterClass.prototype.emit = function( msgname, msgdata) {
         // there are't mavlink msgs, they have been pre-filtered by the xxx_handler function, which 
         // also capture the current vehicle state into the Vehicle-Backbone object, which is kept up-to-date by them.
 
-        // also emit this message to all the modules thatre listening..
-      /*  for (const key in modules ){
-             // code to verify if a given module is loaded:
-             if(modules[key].hasOwnProperty("emitter")) {
-                 //console.log("emitter HOOKUP for..: ", key, modules[key].emitter);
-
-                 if( typeof modules[key].emitter.emit === 'function') {
-                     // just like the mavlink parser we emit a specific message by packet name AND
-                     modules[key].emitter.emit(msgname, msgdata)
-                    // .. a generic message by a generic name
-                     msgdata['name'] = msgname;
-                     modules[key].emitter.emit('message', msgdata);
-                 }
-             }
-        }*/
+        //  emit this message to all the loaded Xmodules thatre listening..
     
-        // and the Xmodules 
         for (const key in Xmodules ){
              //console.log("Xmodule telling :", key, msgname,msgdata);
              if (Xmodules[key] != undefined )  Xmodules[key].emit(msgname, msgdata);
@@ -384,14 +343,7 @@ _emitterClass.prototype.emit = function( msgname, msgdata) {
 }
 var mockEmitter = new _emitterClass(); // instance of object.
 
-// this all disables the webserver, and socketio, wtc... all its code basically does nothing, except io.of(IONameSpace).emit(..) captured above.
-var webserver = {}
-webserver.listen = function(idx, cb) {};
-var app = {}
-app.use = function(url, cb) {};
-app.get = function(url, cb) {};
-var express = {}
-express.static = function(url) {};
+// a mock io and namespace with an emit hook... so io.of(IONameSpace).emit(..) calls work, and are captured above..
 var io = {}
 io.on = function(event,cb) {};
 io.of = function(ns) { return mockEmitter; }; // this attaches the namespace to the instance of 'mockEmitter' event emitter object just above.
@@ -401,33 +353,6 @@ nsp.on = function(event,cb) {};
 //----------------------------------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------------------------------
 
-webserver.listen(5000+offset, function(){
-  console.log(`Express webserver listening on port ${5000+offset}.  goto: http://127.0.0.1:${5000+offset}`);
-});
-
-// webserver anything under /static from /static
-app.use('/static', express.static('static'))
-
-//this is a good thing, generally.
-app.get('/favicon.ico', function (req, res) {
-    res.sendFile(__dirname + '/static/favicon.ico',{headers: {'Content-Type': 'image/vnd.microsoft.icon'}});
-});
-// this is the most important thing. note we're using the non-template (true html) version of the index.html file as we don't
-// implement the same templating library that the python implementation uses, 
-// but template/index.html and node_index.html are very similar otherwise.
-app.get('/', function (req, res) {
-  res.sendFile(__dirname + '/node_index.html');
-
-});
-
-
-io.on('connection', function (websocket) {
-  //console.log("websocket connection");
-  websocket.emit('news', { hello: 'world' });
-  websocket.on('my other event', function (data) {
-    console.log(data);
-  });
-});
 
 // MAVControl puts most of its WebSockets into a NameSpace, so we honour that and replicate it:
 IONameSpace = '/MAVControl';
@@ -436,189 +361,19 @@ IONameSpace = '/MAVControl';
 // socket.io namespace
 //const nsp = io.of(IONameSpace);
 
+//-----------------------------------------------------------------------------------------------
 
-
-// set true when we see some sort of mavlink, either via tcp:localhost:5760 or as incoming udp stream
-// once UDP is successful, tcp stops connection-retrying.
+// set one of these true when we see some sort of mavlink, either via tcp:localhost:5760 or as incoming udp stream
+// once UDP is successful, then the other connection/s can stop re-trying etc.
 var ISUDPCONNECTED = false; 
 var ISTCPCONNECTED = false; 
 var ISSERIALCONNECTED = false;
 
 //-----------------------------------------------------------------------------------------------
 
-// uart serial handling
-
-
-
-//-----------------------------------------------------------------------------------------------
-// also setup TCP server and tcp client as connection options
-
 var net = require('net');
 
-/*
-
-// creates the server
-var server = net.createServer();
-
-//emitted when server closes ...not emitted until all connections closes.
-server.on('close',function(){
-  console.log('TCP Server closed !');
-});
-
-
-// emitted when new client connects
-server.on('connection',function(socket){
-
-//this property shows the number of characters currently buffered to be written. (Number of characters is approximately equal to the number of bytes to be written, but the buffer may contain strings, and the strings are lazily encoded, so the exact number of bytes is not known.)
-//Users who experience large or growing bufferSize should attempt to "throttle" the data flows in their program with pause() and resume().
-
-  console.log('Buffer size : ' + socket.bufferSize);
-
-  console.log('---------TCP server details -----------------');
-
-  var address = server.address();
-  var port = address.port;
-  var family = address.family;
-  var ipaddr = address.address;
-  console.log('Server is listening at port: ' + port);
-  console.log('Server ip :' + ipaddr);
-  console.log('Server is IP4/IP6 : ' + family);
-
-  var lport = socket.localPort;
-  var laddr = socket.localAddress;
-  console.log('Server is listening at LOCAL port: ' + lport);
-  console.log('Server LOCAL ip :' + laddr);
-
-  console.log('------------remote client info --------------');
-
-  var rport = socket.remotePort;
-  var raddr = socket.remoteAddress;
-  var rfamily = socket.remoteFamily;
-
-  console.log('REMOTE Socket is connected from remote port: ' + rport);
-  console.log('REMOTE Socket ip :' + raddr);
-  console.log('REMOTE Socket is IP4/IP6 : ' + rfamily);
-
-  console.log('--------------------------------------------')
-//var no_of_connections =  server.getConnections(); // sychronous version
-server.getConnections(function(error,count){
-  console.log('Number of concurrent connections to the server : ' + count);
-});
-
-socket.setEncoding('utf8');
-
-socket.setTimeout(800000,function(){
-  // called after timeout -> same as socket.on('timeout')
-  // it just tells that soket timed out => its ur job to end or destroy the socket.
-  // socket.end() vs socket.destroy() => end allows us to send final data and allows some i/o activity to finish before destroying the socket
-  // whereas destroy kills the socket immediately irrespective of whether any i/o operation is goin on or not...force destry takes place
-  console.log('Socket timed out');
-});
-
-
-socket.on('data',function(data){
-  var bread = socket.bytesRead;
-  var bwrite = socket.bytesWritten;
-  console.log('Bytes read : ' + bread);
-  console.log('Bytes written : ' + bwrite);
-  console.log('Data sent to server : ' + data);
-
-  //echo data
-  var is_kernel_buffer_full = socket.write('Data ::' + data);
-  if(is_kernel_buffer_full){
-    console.log('Data was flushed successfully from kernel buffer i.e written successfully!');
-  }else{
-    socket.pause();
-  }
-
-});
-
-socket.on('drain',function(){
-  console.log('write buffer is empty now .. u can resume the writable stream');
-  socket.resume();
-});
-
-socket.on('error',function(error){
-  console.log('Error : ' + error);
-});
-
-socket.on('timeout',function(){
-  console.log('Socket timed out !');
-  socket.end('Timed out!');
-  // can call socket.destroy() here too.
-});
-
-socket.on('end',function(data){
-  console.log('Socket ended from other end!');
-  console.log('End data : ' + data);
-});
-
-socket.on('close',function(error){
-  var bread = socket.bytesRead;
-  var bwrite = socket.bytesWritten;
-  console.log('Bytes read : ' + bread);
-  console.log('Bytes written : ' + bwrite);
-  console.log('Socket closed!');
-  if(error){
-    console.log('Socket was closed coz of transmission error');
-  }
-}); 
-
-setTimeout(function(){
-  var isdestroyed = socket.destroyed;
-  console.log('Socket destroyed:' + isdestroyed);
-  socket.destroy();
-},1200000);
-
-});
-
-// emits when any error occurs -> calls closed event immediately after this.
-server.on('error',function(error){
-  console.log('Error: ' + error);
-});
-
-//emits when server is bound with server.listen
-server.on('listening',function(){
-  console.log('TCP Server is listening - on port 2222');
-});
-
-server.maxConnections = 10;
-
-//static port allocation
-server.listen(2222);
-
-*/
-
-// for dyanmic port allocation
-/*
-server.listen(function(){
-  var address = server.address();
-  var port = address.port;
-  var family = address.family;
-  var ipaddr = address.address;
-  console.log('Server is listening at port' + port);
-  console.log('Server ip :' + ipaddr);
-  console.log('Server is IP4/IP6 : ' + family);
-});
-
-
-
-var islistening = server.listening;
-
-if(islistening){
-  console.log('Server is listening');
-}else{
-  console.log('Server is not listening');
-}
-
-setTimeout(function(){
-  server.close();
-},5000000);
-
-*/
-
 //----------------------------------------------------------------------------------
-
 
 var set_stream_rates = function(rate,target_system,target_component) {
 
@@ -632,11 +387,13 @@ var set_stream_rates = function(rate,target_system,target_component) {
     mavlinkParser2.send(rsr); 
     console.log('Set Stream Rates =4');
 }
+//----------------------------------------------------------------------------------
 
 var last_pkt_cnt = 0;
 var rate = 0;
 var data_timeout = 0;
 var last_type = undefined;
+
 var show_stream_rates = function(type) {
 
     if ( type != last_type) { data_timeout=0;   last_type =type;  }
@@ -669,10 +426,10 @@ var show_stream_rates = function(type) {
     last_pkt_cnt = mavlinkParser2.total_packets_received;
 
 }
+//----------------------------------------------------------------------------------
 
-// tcp_client.   udp_server.  and port.  might all come thru here.
+// tcp_client.   udp_server.  and port.  all come thru here.
 var send_heartbeat_handler = function() {
-
 
    var heartbeat = new mavlink20.messages.heartbeat(); 
       heartbeat.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
@@ -682,19 +439,16 @@ var send_heartbeat_handler = function() {
       heartbeat.system_status = 218; // fieldtype: uint8_t  isarray: False 
       heartbeat.mavlink_version = 3; // fieldtype: uint8_t  isarray: False 
 
-      //var p = heartbeat.pack(mavlinkParser2);
-
       mavlinkParser2.send(heartbeat,255); // we don't know the sysid yet, so 255 as a broadcast ip is ok.
 
- //console.log(" sending heardbeat over tcp link ");
     process.stdout.write('>');
 
 }
+//----------------------------------------------------------------------------------
 
 // convenient global
 var mavlinktype = undefined;
 
-//----------------------------------------------------------------------------------
 //---------------------client----------------------
 
 // creating a SINGLE custom socket called 'var client' and connecting it....
@@ -725,13 +479,9 @@ var try_connect_tcp_client = function(path) {
         console.log('Client ip :' + ipaddr);
         console.log('Client is IP4/IP6 : ' + family);
 
-
         // we know we can reply here, even without knowing the sysid...
         broadcast_ip_address = {'ip':ipaddr, 'port':port, 'type':'tcp' }; 
         client_send_heartbeat(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
-
-        // writing data to server
-        //client.write('hello from client');// we send something so server doesnt drop us
 
     });
 
@@ -819,35 +569,6 @@ var try_connect_tcp_client = function(path) {
 } // end of try_connect_tcp_client function
 
 
-
-    // clear with clearInterval(heartbeat_interval)
-
-
-//NOTE:--> all the events of the socket are applicable here..in client...
-
-
-// -----------------creating client using net.connect instead of custom socket-------
-
-// server creation using net.connect --->
-// u can also => write the below code in seperate js file
-// open new node instance => and run it...
-
-/*
-const clients = net.connect({port: 2222}, () => {
-  // 'connect' listener
-  console.log('connected to server!');
-  clients.write('world!\r\n');
-});
-clients.on('data', (data) => {
-  console.log(data.toString());
-  clients.end();
-});
-clients.on('end', () => {
-  console.log('disconnected from server');
-});
-*/
-
-
 //-------------------------------------------------------------
 //
 // module handling
@@ -879,7 +600,7 @@ function __unloadModule(moduleName) {
     delete require.cache[solvedName];
   }
 }
-
+//-------------------------------------------------------------
 // filename = module name
 function loadModule(key,file){
 
@@ -898,7 +619,6 @@ function loadModule(key,file){
       }
 }
 
-
 function LoadModules() {
     // multi-module load at startup.
     var glob = require( 'glob' );
@@ -914,40 +634,6 @@ function LoadModules() {
               if (key.startsWith('mav') ) { return;  }
 
               loadModule(key,file);
-
-/*
-
-             // a bunch of properties that might include a constructor
-             if(modules[key].hasOwnProperty("make")) {
-                    //console.log("BLERG",modules[key].make);
-                    console.log("--module loaded "+key);
-                    //mavlinkParser2
-                    var t= new modules[key].make(undefined); // we assemble an emitter object with constructor
-                    // overrite default constructurless obj..
-                    //modules[key].emitter = t;
-                    // console.log("BLERG",t);
-              } 
-
-*/
-
-/*
-
-             // code to verify if a given module is loaded:
-             if(modules[key].hasOwnProperty("emitter")) {
-                 console.log("emitter HOOKUP for..: ", key, modules[key].emitter);// we get an emitter object without constructor
-
-                 if( typeof modules[key].emitter.on === 'function') {
-                     console.log("ON HOOKUP for..: ", key);
-                     // test 'on' event..
-//                     modules[key].emitter.on('test1', { some: 'data', more:'dater-ing' })
-
-                     //modules[key].emitter.on('HUD', function () {
-                     //                              console.log('HUD listner executed.');
-                     //                           });
-
-                 }
-             }
-*/
 
             }
           }
@@ -969,12 +655,9 @@ process_cmdline = function(cmdline) {
     // drop newline
     if (cmdline[cmdline.length - 1] == 13) { cmdline.pop(); } // remove last item
 
-    //console.log(cmdline);//debug  
-
     var strcmd = String.fromCharCode.apply(null, cmdline); // turn array of bytes into a string
 
     //console.log("--",strcmd,"--                              "); // extra whitespace to clear rest of line
-
     var args = strcmd.split(" "); // chars to words
 
     // remove empty words
@@ -998,9 +681,6 @@ process_cmdline = function(cmdline) {
 
     // d = show signing debug object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
     if (args[0] == "d") { 
-        //console.log(Xmodules.signing);//lrg
-        //console.log(Xmodules.signing.mp);//med, 1 screen
-        //console.log(Xmodules.signing.mp.signing);//sml, a few lines
         console.log(mavlinkParser2);
     }
 
@@ -1063,6 +743,7 @@ process_cmdline = function(cmdline) {
   }
   
 }
+//-------------------------------------------------------------
 
 // triggers 'on' even after every keypress..
 process.stdin.setRawMode(true);
@@ -1110,6 +791,7 @@ process.stdin.on('readable', function () {
 
 
 });
+//-------------------------------------------------------------
 
 // without this little block, the above 'readable' block doesnt repeat
 process.stdin.on('data', function () {
@@ -1117,26 +799,9 @@ process.stdin.on('data', function () {
   return;
 });
 
-
-/*
-while (true) {
-    rl.question(`${MODE}>`, function(name) {
-
-
-        //    rl.close();
-
-        console.log(`${MODE}>...`);
-    });
-}
-
-rl.on("close", function() {
-    console.log("\nBYE BYE !!!");
-    process.exit(0);
-});
-*/
 //-------------------------------------------------------------
 //
-//
+//  we need to keep a lookup table between the sysid and the ip/port/type of connection
 //
 //-------------------------------------------------------------
 
@@ -1144,12 +809,7 @@ rl.on("close", function() {
 var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_udp) {
 
     if (message === undefined) { return ; }
-
-    if (typeof message._header == 'undefined'){ 
-        //console.log('message._header UNDEFINED, skipping packet:'); 
-        //console.log(message); 
-        return; 
-    }
+    if (typeof message._header == 'undefined'){  return;   }
 
     // don't allow sysid of 255 to be stored.
     if (message._header.srcSystem == 255 ) { return;  }
@@ -1158,40 +818,29 @@ var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_ud
     if (  sysid_to_ip_address[message._header.srcSystem] == null )  {
           console.log(`Got first PARSED MSG from sysid:${message._header.srcSystem} src:${ip}:${port}, mav-proto:${mavlinktype}. Not repeating this. `);
     }
-    // by having this inside the above if() the source port and ip can't change without a page reload, having it below, it keeps uptodate.
     sysid_to_ip_address[message._header.srcSystem] = {'ip':ip, 'port':port, 'type':tcp_or_udp }; 
     sysid_to_mavlink_type[message._header.srcSystem] =    mavlinktype; // 1 or 2
-
 
 }
 
 //-------------------------------------------------------------
-
-// creating a SINGLE custom socket called 'var client' and connecting it....
+//
+// creating a udp server, as its a listener, its a bit different to a serial or tcp_client connection, but works.
+//
 var udp_server  = undefined;
 
 var try_connect_udp_server = function(portnum) {
 
     // setup UDP listener
     const dgram = require('dgram');
-    udp_server = dgram.createSocket('udp4'); //
+    udp_server = dgram.createSocket('udp4'); 
     // and bind it
     udp_server.bind(portnum);
-
-    //var last_error = undefined;
 
     // hook udp listener events to actions:
     udp_server.on('error', (err) => {
         ISUDPCONNECTED = false; 
         console.log(`udp server error:\n${err.stack}`);
-
-        // don't report same error more than 1hz..
-       //if (last_error != error.toString()) {
-       //   last_error = error.toString();
-       //   console.log('[udp_server] ' + error + " - retrying...");
-       // }
-
-//      webserver.close();
     });
 
     // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
@@ -1215,30 +864,16 @@ var try_connect_udp_server = function(portnum) {
         var mavlinktype = undefined;
         // lets try to support mav1/mav2 with dual parsers.
         if (array_of_chars[0] == 253 ) { 
-            packetlist = mavlinkParser2.parseBuffer(array_of_chars); 
+            packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs from here woth parsed result
             mavlinktype = 2; // known bug, at the moment we assume that if we parsed ONE packet for this sysid in the start of the stream as mav1 or mav2, then they all are
         } 
-       // if (array_of_chars[0] == 254 ) { 
-       //     packetlist = mavlinkParser1.parseBuffer(array_of_chars); 
-       //     mavlinktype = 1; 
-       // }
-        // if neither, then we do nothing with the empty [] packet list anyway.
-
-        //parseBuffer CAN and does 'emit' messages with the parsed result, because of the 'generic' capture/s elsewhere using mavlinkParser1.on(..) 
-        // , the packets trigger a call to mavlink_ip_and_port_handler with the result, but no ip/port data would be kept through 
-        //   the 'emit()' process, so we ALSO return the array-of-chars as an array of mavlink packets, possibly 'none', [ p] single packet , or [p,p,p] packets.
-        // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
-
+     
         // if there's no readable packets in the byte stream, dont try to iterate over it
         if (packetlist == null ) return;
 
         // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
-    //    for (msg of packetlist){  
-        mavlink_ip_and_port_handler(packetlist[0],rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
-    //    }
-
-        //console.log(msg);    
-        //console.log(array_of_chars);        
+        mavlink_ip_and_port_handler(packetlist[0],rinfo.address,rinfo.port,mavlinktype, "udp" );  // record src.
+        
     });
 
     // basic checks of udp link before trying to send
@@ -1246,7 +881,6 @@ var try_connect_udp_server = function(portnum) {
        if ( ! ISUDPCONNECTED ) return ;
 
         // todo implement some thing that sends a heartbeat to each active udp stream ?
-
 
         send_heartbeat_handler();
 
@@ -1268,6 +902,9 @@ var try_connect_udp_server = function(portnum) {
 
 
 //----------------------------------------------------------------------------------
+//
+// first serious bit of code here.. is where we try to use either serial from --master, or tcp/udp connectors
+//
 //----------------------------------------------------------------------------------
 
 // if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
@@ -1294,7 +931,6 @@ var generic_message_handler = function(message) {
     if ((message._id == -1 ) && (message._reason != 'Invalid signature') ) { return;}
 
 
-
     // console.log all the uncommon message types we DONT list here. 
     if ( ! ['GPS_RAW_INT', 'VFR_HUD', 'ATTITUDE', 'SYS_STATUS', 'GLOBAL_POSITION_INT', 'HEARTBEAT','VIBRATION',
             'BATTERY_STATUS', 'TERRAIN_REPORT', 'WIND', 'HWSTATUS', 'AHRS', 'AHRS2', 'AHRS3',
@@ -1308,7 +944,7 @@ var generic_message_handler = function(message) {
              'FENCE_STATUS' , 'AOA_SSA' , 'GPS_GLOBAL_ORIGIN', 'TERRAIN_REQUEST', 
             'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS',].includes(message._name) ) { 
             
-	console.log('gmh:');
+	console.log('unhandled msg type - please add it to the list....:');
 	console.log(message);  // emit any message type that we don't list above, as we dont know about it...
     } 
     // log PARAM_VALUE differently to exclude common ones like where param_id starts with 'STAT_RUNTIME' etc
@@ -1333,11 +969,7 @@ var generic_message_handler = function(message) {
         }
     }
 
-
-//  display STATUSTEXT as simple console.log - STATUSTEXT handled elsewhere now
-//    if (  ['STATUSTEXT' ].includes(message._name) ) {
-//        //console.log(`STATUSTEXT: ${message.text}`);    
-//    } 
+    //   STATUSTEXT handled elsewhere now
 
     if (  ['COMMAND_ACK' ].includes(message._name) ) {
         console.log(`COMMAND_ACK command= ${message.command} result= ${message.result} `);
@@ -1383,8 +1015,6 @@ sysid_to_ip_address = {};
 var broadcast_ip_address = undefined; 
 sysid_to_mavlink_type = {};
 
-
-//udpserver.bind(14550+offset);
 
 var sysid = 12; // lets assume just one sysid to start with.
 
@@ -1533,19 +1163,17 @@ In simple terms, it adds properties from other objects (source) on to a target o
 
 //-------------------------------------------------------------
 //
-// handle all the parsed MAVLINK messages coming in to us, from UDP link th actual Vehicle. 
+// handle all the parsed MAVLINK messages coming in to us, from UDP/tcp/serial/etc  link to actual Vehicle. 
 //
 // (the heartbeat msg is the most complex, as we use it to create new vehicles in the collection and hook state-change events.)
 //
 //-------------------------------------------------------------
 
 
-// the '2' in this name is not a mavlink2 thing, it's becasue we've got two different hooks on the 'heartbeat' right now for convenience.
-// we can surely merge them as some point.
+//  hooks on the 'heartbeat' right now for convenience, as its guaranteed to be on a stream..
+
 var heartbeat_handler =  function(message) {
-    //console.log(`Got a HEARTBEAT message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
     //console.log(message);
-    //console.log(`got HEARTBEAT with ID: ${message._header.srcSystem}`);
     var tmp_sysid = message._header.srcSystem;
 
     // don't allow messages that appear to come from 255 to be hadled.
@@ -1627,7 +1255,6 @@ var heartbeat_handler =  function(message) {
     }
 
 }
-
 //mavlinkParser1.on('HEARTBEAT', heartbeat_handler);
 mavlinkParser2.on('HEARTBEAT', heartbeat_handler);
 
@@ -1636,7 +1263,7 @@ var gpi_handler = function(message) {
     var current_vehicle = AllVehicles.get(message._header.srcSystem); 
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
-        //console.log(`Got a GLOBAL_POSITION_INT message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
+        //console.log(`Got a GLOBAL_POSITION_INT message `);
         current_vehicle.set( {
             lat: message.lat / 10000000,
             lon: message.lon / 10000000,
@@ -1661,12 +1288,11 @@ mavlinkParser2.on('GLOBAL_POSITION_INT', gpi_handler);
 
 
 
-
 var sysstatus_handler = function(message) {
     var current_vehicle = AllVehicles.get(message._header.srcSystem); 
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
-        //console.log(`Got a SYS_STATUS message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
+        //console.log(`Got a SYS_STATUS message `);
         current_vehicle.set( {
             voltage_battery: message.voltage_battery,
             current_battery: message.current_battery,
@@ -1722,7 +1348,7 @@ var att_handler = function(message) {
     var current_vehicle = AllVehicles.get(message._header.srcSystem); 
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
-        //console.log(`Got a ATTITUDE message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
+        //console.log(`Got a ATTITUDE message `);
 
        // radians * 180.0 / 3.14159 = Angle_in_degrees 
         current_vehicle.set( {
@@ -1749,7 +1375,7 @@ var vfrhud_handler = function(message) {
     var current_vehicle = AllVehicles.get(message._header.srcSystem); 
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
-        //console.log(`Got a VFR_HUD message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
+        //console.log(`Got a VFR_HUD message `);
         current_vehicle.set( {
             airspeed: message.airspeed,
             groundspeed: message.groundspeed,
@@ -1776,7 +1402,7 @@ var gpsrawint_handler = function(message) {
     var current_vehicle = AllVehicles.get(message._header.srcSystem); 
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
-        //console.log(`Got a GPS_RAW_INT message from ${udpserver.last_ip_address.address}:${udpserver.last_ip_address.port} `);
+        //console.log(`Got a GPS_RAW_INT message `);
         current_vehicle.set( {
             fix_type: message.fix_type,
             satellites_visible: message.satellites_visible,
@@ -1801,6 +1427,7 @@ var gpsrawint_handler = function(message) {
 }
 //mavlinkParser1.on('GPS_RAW_INT', gpsrawint_handler);
 mavlinkParser2.on('GPS_RAW_INT', gpsrawint_handler);
+
 
 //-------------------------------------------------------------
 //
