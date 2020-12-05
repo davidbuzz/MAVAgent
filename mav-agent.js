@@ -127,12 +127,49 @@ var try_connect_serial = function(path) {
       serialport.resume();
     });
 
-    serialport.on('error',function(error){
-      console.log('[SerialPort] ' + error);
+  serialport.on('disconnect',function(){
+console.log('[SerialPort] disconnect event');
     });
+
+   // called when a previously valid thing was unplugged...
+  serialport.on('close',function(){
+//console.log('[SerialPort] close event');
+
+    // we'll treat a close/unplug as an error, both of which need a re-detect loop
+    serialport.emit('error', 'serialport not readable');
+
+
+    });
+
+    var last_error = undefined;
+    serialport.on('error',function(error){
+//console.log('[SerialPort] error event');
+        if (ISUDPCONNECTED)  {  
+           //console.log("using incoming UDP data, stopped retries on TCP");    
+            return;
+        }
+        if (ISTCPCONNECTED)  {  
+            //console.log("using incoming SERIAL data, stopped retries on TCP");    
+            return;
+        }
+        ISSERIALCONNECTED = false; 
+
+   // don't report same error more than 1hz..
+        if (last_error != error.toString()) {
+          last_error = error.toString();
+          console.log('[SerialPort] ' + error + " - retrying...");
+        }
+
+        // re-instantiate whole object, with autoopen
+        //serialport = new SerialPort(path, { baudRate: 115200, autoOpen: true });// its actually a promise till opened
+
+        serialport.open();
+    });
+
 
     // basic checks of tcp link before trying to send
     var serialport_send_heartbeat = function() {
+       if ( ! ISSERIALCONNECTED ) return ;
        //don't send unless we are connected, probably dont need all of these..
        if (serialport.connecting == true ) {return; } // when other end wasnt there to start with
        if (serialport.readable == false ) {
@@ -157,6 +194,15 @@ var try_connect_serial = function(path) {
     //close
     //data
     //drain
+
+    // serial-specific
+    var heartbeat_interval = setInterval(function(){
+      //if (client != undefined ) client.send_heartbeat(); // types '>' on console 
+      //if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
+      if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
+      last_error = undefined;
+      show_stream_rates('serial')
+    },1000);
 
 }
 
@@ -590,7 +636,10 @@ var set_stream_rates = function(rate,target_system,target_component) {
 var last_pkt_cnt = 0;
 var rate = 0;
 var data_timeout = 0;
-var show_stream_rates = function() {
+var last_type = undefined;
+var show_stream_rates = function(type) {
+
+    if ( type != last_type) { data_timeout=0;   last_type =type;  }
 
     var newrate = (mavlinkParser2.total_packets_received- last_pkt_cnt);
 
@@ -610,8 +659,8 @@ var show_stream_rates = function() {
 
     if ((data_timeout > 5) && (ISSERIALCONNECTED)) { 
         console.log("incoing serial stream has gone away, sorry.");
-        ISSERIALCONNECTED=false;
-        //data_timeout = 0;
+        //ISSERIALCONNECTED=false;
+        data_timeout = 0;
     }
 
     //first time through, assume 120 for no reason other than its plausible, 'newrate' works well for non-serials.
@@ -745,7 +794,7 @@ var try_connect_tcp_client = function(path) {
 
         if (last_error != error.toString()) {
           last_error = error.toString();
-          console.log('' + error + " - retrying...");
+          console.log('[TCP Client]' + error + " - retrying...");
         }
 
         client.connect({
@@ -756,27 +805,21 @@ var try_connect_tcp_client = function(path) {
     });
 
 
-    // tcp heartbeat handler at 1hz
-  //  var heartbeat_interval = setInterval(function(){
-  //    client_send_heartbeat(); // types '>' on console 
-  //    last_error = undefined;
-  //    show_stream_rates()
-  //  },1000);
+    // this is a tcp cliebnt heartbeat handler at 1hz, u
+    var heartbeat_interval = setInterval(function(){
+      if (client != undefined ) client.send_heartbeat(); // types '>' on console 
+      //if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
+      //if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
+      last_error = undefined;
+      show_stream_rates('client')
+    },1000);
     // clear with clearInterval(heartbeat_interval)
 
-   // return client;
 
 } // end of try_connect_tcp_client function
 
 
-// this is a one-size-fits-all  heartbeat handler at 1hz, used irrespective of the connection type/s
-var heartbeat_interval = setInterval(function(){
-  if (client != undefined ) client.send_heartbeat(); // types '>' on console 
-  //if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
-  if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
-  last_error = undefined;
-  show_stream_rates()
-},1000);
+
     // clear with clearInterval(heartbeat_interval)
 
 
@@ -1135,11 +1178,20 @@ var try_connect_udp_server = function(portnum) {
     // and bind it
     udp_server.bind(portnum);
 
+    //var last_error = undefined;
+
     // hook udp listener events to actions:
     udp_server.on('error', (err) => {
-      ISUDPCONNECTED = false; 
-      console.log(`server error:\n${err.stack}`);
-      webserver.close();
+        ISUDPCONNECTED = false; 
+        console.log(`udp server error:\n${err.stack}`);
+
+        // don't report same error more than 1hz..
+       //if (last_error != error.toString()) {
+       //   last_error = error.toString();
+       //   console.log('[udp_server] ' + error + " - retrying...");
+       // }
+
+//      webserver.close();
     });
 
     // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
@@ -1186,10 +1238,30 @@ var try_connect_udp_server = function(portnum) {
     //    }
 
         //console.log(msg);    
-        //console.log(array_of_chars);
-
-        
+        //console.log(array_of_chars);        
     });
+
+    // basic checks of udp link before trying to send
+    var udp_server_send_heartbeat = function() {
+       if ( ! ISUDPCONNECTED ) return ;
+
+        // todo implement some thing that sends a heartbeat to each active udp stream ?
+
+
+        send_heartbeat_handler();
+
+    }
+    serialport.send_heartbeat = udp_server_send_heartbeat; // allow access as a method in the object too.
+
+
+    // this is a upd-server heartbeat handler at 1hz
+    var heartbeat_interval = setInterval(function(){
+      //if (client != undefined ) client.send_heartbeat(); // types '>' on console 
+      if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
+      //if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
+      //last_error = undefined;
+      show_stream_rates('udp')
+    },1000);
 
 } // end connecting udp_server
 
