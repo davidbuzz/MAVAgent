@@ -52,13 +52,13 @@ master = argv.master;
 }
 
 
-// the only bit of the serial handling that is outside the 'try connect serial' block, due to its .send
+// the only bit of the serial handling that is outside the 'try connect serial' block, due to its .write 
 var serialport = undefined;
 
 var try_connect_serial = function(path) {
 
 
-//https://serialport.io/docs/api-stream reference
+    //https://serialport.io/docs/api-stream reference
 
     const SerialPort = require('serialport')
     //const 
@@ -71,10 +71,8 @@ var try_connect_serial = function(path) {
       console.log('Serial: connection established !!');
 
       // serial, not ip, fake the ip, and use path instead of port
-      var ipaddr = '127.0.0.1';
-
       // we know we can reply here, even without knowing the sysid...
-      broadcast_ip_address = {'ip':ipaddr, 'port':path, 'type':'serial' }; 
+      broadcast_ip_address = {'ip':'127.0.0.1', 'port':path, 'type':'serial' }; 
       send_heartbeat_handler(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
 
       // writing data to server
@@ -86,49 +84,43 @@ var try_connect_serial = function(path) {
     //serialport.on('data', line => console.log(`> ${line}`))
 
     serialport.on('data',function(msg){
-      var bread = serialport.bytesRead;
-      var bwrite = serialport.bytesWritten;
-      //console.log('[SerialPort] Bytes read : ' + bread);
-      //console.log('[SerialPort] Bytes written : ' + bwrite);
-      //console.log('[SerialPort] Data sent FROM serial : ' + data);
+        var bread = serialport.bytesRead;
+        var bwrite = serialport.bytesWritten;
+        //console.log('[SerialPort] Bytes read : ' + bread);
+        //console.log('[SerialPort] Bytes written : ' + bwrite);
+        //console.log('[SerialPort] Data sent FROM serial : ' + data);
 
-      //console.log("SER:",msg); //msg is a Buffer
+        //console.log("SER:",msg); //msg is a Buffer
 
-      //echo data
-      //var is_kernel_buffer_full = serialport.write('Data ::' + msg);
-      //if(is_kernel_buffer_full){
+        //echo data
+        //var is_kernel_buffer_full = serialport.write('Data ::' + msg);
+        //if(is_kernel_buffer_full){
         //console.log('[SerialPort] Data was flushed successfully from kernel buffer i.e written successfully!');
-      //}else{
-      //  serialport.pause();
-      //}
+        //}else{
+        //  serialport.pause();
+        //}
 
-    var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
-    var packetlist = [];
-    if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
+        var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
+        var packetlist = [];
+        if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
         console.log("found mavlink2 header-serial");
         mavlinktype = 2;
-    }
-    packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
-    // filter the packets
-    function isGood(element, index, array) {
-      return element._id != -1;
-    }
-   // if there's no readable packets in the byte stream, dont try to iterate over it
-    if (packetlist == null ) return;
-    goodpackets = packetlist.filter(isGood);
+        }
+        packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
+        // filter the packets
+        function isGood(element, index, array) {
+        return element._id != -1;
+        }
+        // if there's no readable packets in the byte stream, dont try to iterate over it
+        if (packetlist == null ) return;
+        goodpackets = packetlist.filter(isGood);
+        //console.log("packets:",packetlist.length,"good:",goodpackets.length)
 
-    //console.log("packets:",packetlist.length,"good:",goodpackets.length)
-
-    if (packetlist == null ) return;
-
-    var rinfo = { address: '127.0.0.1',  port: '/dev/ttyUSB0' }
-    mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "serial");  // [1] = ip  and [2] = port
+        var rinfo = { address: '127.0.0.1',  port: '/dev/ttyUSB0' }
+        mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "serial");  // [1] = ip  and [2] = port
 
     });
 
-
-
-//-----------------------------------------------------
 
     serialport.on('drain',function(){
       //console.log('[SerialPort] write buffer is empty now .. u can resume the writable stream');
@@ -139,28 +131,33 @@ var try_connect_serial = function(path) {
       console.log('[SerialPort] ' + error);
     });
 
-
+    // basic checks of tcp link before trying to send
+    var serialport_send_heartbeat = function() {
+       //don't send unless we are connected, probably dont need all of these..
+       if (serialport.connecting == true ) {return; } // when other end wasnt there to start with
+       if (serialport.readable == false ) {
+            //console.log("tcp not readable");
+            serialport.emit('error', 'serialport not readable'); // tell the error handler that will try re-connecting.
+            return; 
+        }// when other end goes-away unexpectedly
+        send_heartbeat_handler();
+    }
+    serialport.send_heartbeat = serialport_send_heartbeat; // allow access as a method in the object too.
 
 
     //serialport.write('ROBOT POWER ON\n')
     console.log('[SerialPort] initialised.\n')
 
-// serialport.isOpen boolean
+    // serialport.isOpen boolean
 
-//SerialPort Stream object is a Node.js transform stream and implements the standard data and error events in addition to a few others.
-// open
-// error
-//close
-//data
-//drain
+    //SerialPort Stream object is a Node.js transform stream and implements the standard data and 
+    //          error events in addition to a few others.
+    // open
+    // error
+    //close
+    //data
+    //drain
 
-}
-
-// if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
-if (master !== undefined ) {
-  try_connect_serial(master)
-} else {
-    console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n')
 }
 
 
@@ -208,7 +205,7 @@ generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
         return;
     }
     // at startup, till we've had at least one INCOMING packet, we can't send.
-    if ((mavmsg.type == "udp")&&(udpserver.have_we_recieved_anything_yet == null )) { 
+    if ((mavmsg.type == "udp")&&(udp_server.have_we_recieved_anything_yet == null )) { 
         console.log('mavlink udp write not possible yet,dropped packet.');
         return;
     } 
@@ -220,7 +217,7 @@ generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
 
     // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
     if (mavmsg.type == "udp") {
-        udpserver.send( b, mavmsg.port, mavmsg.ip ); 
+        udp_server.send( b, mavmsg.port, mavmsg.ip ); 
     }
 
     if (mavmsg.type == "tcp") {
@@ -393,10 +390,6 @@ IONameSpace = '/MAVControl';
 // socket.io namespace
 //const nsp = io.of(IONameSpace);
 
-
-// setup UDP listener
-const dgram = require('dgram');
-const udpserver = dgram.createSocket('udp4');
 
 
 // set true when we see some sort of mavlink, either via tcp:localhost:5760 or as incoming udp stream
@@ -579,46 +572,9 @@ setTimeout(function(){
 */
 
 //----------------------------------------------------------------------------------
-//---------------------client----------------------
-
-// creating a SINGLE custom socket called 'var client' and connecting it....
-var client  = new net.Socket();
 
 
-
-client.connect({
-  host:'127.0.0.1',
-  port:5760
-});
-
-
-client.on('connect',function(){
-
-  ISTCPCONNECTED = true; 
-
-  console.log('Client: connection established with TCP server');
-
-  console.log('---------client details -----------------');
-  var address = client.address();
-  var port = address.port;
-  var family = address.family;
-  var ipaddr = address.address;
-  console.log('Client is connected and recieving on local port: ' + port);
-  console.log('Client ip :' + ipaddr);
-  console.log('Client is IP4/IP6 : ' + family);
-
-
-  // we know we can reply here, even without knowing the sysid...
-  broadcast_ip_address = {'ip':ipaddr, 'port':port, 'type':'tcp' }; 
-  client_send_heartbeat(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
-
-  // writing data to server
-  //client.write('hello from client');// we send something so server doesnt drop us
-
-});
-
-
-var client_set_stream_rates = function(rate,target_system,target_component) {
+var set_stream_rates = function(rate,target_system,target_component) {
 
 // mavproxy uses a stream_rate of 4 on its links by default, so we'll just use that...
 
@@ -665,7 +621,7 @@ var show_stream_rates = function() {
 
 }
 
-// client.   udpserver.  and port.  might all come thru here.
+// tcp_client.   udp_server.  and port.  might all come thru here.
 var send_heartbeat_handler = function() {
 
 
@@ -686,126 +642,142 @@ var send_heartbeat_handler = function() {
 
 }
 
-// basic checks of tcp link before trying to send
-var client_send_heartbeat = function() {
-
-   //console.log(client);
-   //don't send unless we are connected, probably dont need all of these..
-   if (client.connecting == true ) {return; } // when other end wasnt there to start with
-
-  // don't sent tcp heartbeats if we are using udp.
-  //if (ISUDPCONNECTED == true) {return;}
-
-   if (client.readable == false ) {
-        //console.log("tcp not readable");
-        client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
-        return; 
-    }// when other end goes-away unexpectedly
-
-   //if (client._sockname == null ) {console.log("sockname is null");return; }
-
-    send_heartbeat_handler();
-
-}
-
-//client.setEncoding('utf8'); causes socket to use strings, not buffers, bad for binary data
-
 // convenient global
 var mavlinktype = undefined;
 
-// UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
-client.on('data',function(msg){ // msg = a Buffer() of data
+//----------------------------------------------------------------------------------
+//---------------------client----------------------
 
+// creating a SINGLE custom socket called 'var client' and connecting it....
+var client  = undefined;
 
-  var rinfo = client.address() // return { address: '127.0.0.1', family: 'IPv4', port: 40860 }
+var try_connect_tcp_client = function(path) {
 
-  //console.log('Data from server:' , rinfo, msg.length);//, msg );
-
-    //client.write('hello from client');
-
-
-  //  if (udpserver.have_we_recieved_anything_yet == null ) { udpserver.have_we_recieved_anything_yet = true } 
-
-    var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
-    //console.log("\nUDPRAW:"+array_of_chars+" len:"+array_of_chars.length);
-
-    var packetlist = [];
-
-    if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
-        console.log("found mavlink2 header");
-        mavlinktype = 2;
-    }
-    packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
-
-    // filter the packets
-    function isGood(element, index, array) {
-      return element._id != -1;
-    }
-
-   // if there's no readable packets in the byte stream, dont try to iterate over it
-    if (packetlist == null ) return;
-
-    goodpackets = packetlist.filter(isGood);
-
-    //console.log(packetlist);
-    //console.log(goodpackets);
-
-    //parseBuffer CAN and does 'emit' messages with the parsed result, because of the 'generic' capture/s elsewhere using mavlinkParser1.on(..) 
-    // , the packets trigger a call to mavlink_ip_and_port_handler with the result, but no ip/port data would be kept through 
-    //   the 'emit()' process, so we ALSO return the array-of-chars as an array of mavlink packets, possibly 'none', [ p] single packet , or [p,p,p] packets.
-    // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
-
- 
-    //console.log("packet count (all/good): ", packetlist.length,goodpackets.length)
-
-    if (packetlist == null ) return;
-
-   // for (msg of goodpackets){  
-   mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "tcp");  // [1] = ip  and [2] = port
-   // }
-
-});
-
-// don't report same error more than 1hz..
-var last_error = undefined;
-client.on('error',function(error){
-
-    if (ISUDPCONNECTED)  {  
-        //console.log("using incoming UDP data, stopped retries on TCP");    
-        return;
-    }
-
-    if (ISSERIALCONNECTED)  {  
-        //console.log("using incoming SERIAL data, stopped retries on TCP");    
-        return;
-    }
-
-    ISTCPCONNECTED = false; 
-
-    if (last_error != error.toString()) {
-    last_error = error.toString();
-    console.log('' + error + " - retrying...");
-  }
+    client  = new net.Socket();
 
     client.connect({
       host:'127.0.0.1',
-      port:5760
+      port:57601
     });
 
-});
 
-// don't disconenct after A FIXED AMOUNT OF TIME..
-//setTimeout(function(){
-//  client.end('Bye bye server');
-//},5000);
+    client.on('connect',function(){
 
-// heartbeat handler at 1hz
+        ISTCPCONNECTED = true; 
+
+        console.log('Client: connection established with TCP server');
+
+        console.log('---------client details -----------------');
+        var address = client.address();
+        var port = address.port;
+        var family = address.family;
+        var ipaddr = address.address;
+        console.log('Client is connected and recieving on local port: ' + port);
+        console.log('Client ip :' + ipaddr);
+        console.log('Client is IP4/IP6 : ' + family);
+
+
+        // we know we can reply here, even without knowing the sysid...
+        broadcast_ip_address = {'ip':ipaddr, 'port':port, 'type':'tcp' }; 
+        client_send_heartbeat(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
+
+        // writing data to server
+        //client.write('hello from client');// we send something so server doesnt drop us
+
+    });
+
+
+    // basic checks of tcp link before trying to send
+    var client_send_heartbeat = function() {
+       //don't send unless we are connected, probably dont need all of these..
+       if (client.connecting == true ) {return; } // when other end wasnt there to start with
+       if (client.readable == false ) {
+            //console.log("tcp not readable");
+            client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
+            return; 
+        }// when other end goes-away unexpectedly
+        send_heartbeat_handler();
+    }
+    client.send_heartbeat = client_send_heartbeat; // allow access as a method in the object too.
+
+
+    // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
+    client.on('data',function(msg){ // msg = a Buffer() of data
+
+        var rinfo = client.address() // return { address: '127.0.0.1', family: 'IPv4', port: 40860 }
+        var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
+        var packetlist = [];
+
+        if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
+            console.log("found mavlink2 header");
+            mavlinktype = 2;
+        }
+        packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
+
+        // filter the packets
+        function isGood(element, index, array) {
+          return element._id != -1;
+        }
+
+        // if there's no readable packets in the byte stream, dont try to iterate over it
+        if (packetlist == null ) return;
+        goodpackets = packetlist.filter(isGood);
+        mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "tcp");  // [1] = ip  and [2] = port
+
+    });
+
+
+    // don't report same error more than 1hz..
+    var last_error = undefined;
+    client.on('error',function(error){
+
+        if (ISUDPCONNECTED)  {  
+            //console.log("using incoming UDP data, stopped retries on TCP");    
+            return;
+        }
+
+        if (ISSERIALCONNECTED)  {  
+            //console.log("using incoming SERIAL data, stopped retries on TCP");    
+            return;
+        }
+
+        ISTCPCONNECTED = false; 
+
+        if (last_error != error.toString()) {
+          last_error = error.toString();
+          console.log('' + error + " - retrying...");
+        }
+
+        client.connect({
+          host:'127.0.0.1',
+          port:57601
+        });
+
+    });
+
+
+    // tcp heartbeat handler at 1hz
+  //  var heartbeat_interval = setInterval(function(){
+  //    client_send_heartbeat(); // types '>' on console 
+  //    last_error = undefined;
+  //    show_stream_rates()
+  //  },1000);
+    // clear with clearInterval(heartbeat_interval)
+
+   // return client;
+
+} // end of try_connect_tcp_client function
+
+
+// this is a one-size-fits-all  heartbeat handler at 1hz, used irrespective of the connection type/s
 var heartbeat_interval = setInterval(function(){
-  client_send_heartbeat(); // types '>' on console 
+  if (client != undefined ) client.send_heartbeat(); // types '>' on console 
+  //if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
+  if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
   last_error = undefined;
   show_stream_rates()
 },1000);
-// clear with clearInterval(heartbeat_interval)
+    // clear with clearInterval(heartbeat_interval)
 
 
 //NOTE:--> all the events of the socket are applicable here..in client...
@@ -831,9 +803,6 @@ clients.on('end', () => {
   console.log('disconnected from server');
 });
 */
-
-//----------------------------------------------------------------------------------
-//----------------------------------------------------------------------------------
 
 
 //-------------------------------------------------------------
@@ -1155,61 +1124,94 @@ var mavlink_ip_and_port_handler = function(message,ip,port,mavlinktype,tcp_or_ud
 
 //-------------------------------------------------------------
 
-// hook udp listener events to actions:
-udpserver.on('error', (err) => {
-  ISUDPCONNECTED = false; 
-  console.log(`server error:\n${err.stack}`);
-  webserver.close();
-});
+// creating a SINGLE custom socket called 'var client' and connecting it....
+var udp_server  = undefined;
 
-// UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
-udpserver.on('message', (msg, rinfo) => {
-    //console.log(udpserver.have_we_recieved_anything_yet);
-    //console.log(rinfo);
+var try_connect_udp_server = function(portnum) {
 
-    // we don't know its sysid yet, but this means we can at least send broadcast/s like heartbeat
-    broadcast_ip_address = {'ip':rinfo.address,'port':rinfo.port, 'type':'udp' }; 
+    // setup UDP listener
+    const dgram = require('dgram');
+    udp_server = dgram.createSocket('udp4'); //
+    // and bind it
+    udp_server.bind(portnum);
 
-    ISUDPCONNECTED = true; 
+    // hook udp listener events to actions:
+    udp_server.on('error', (err) => {
+      ISUDPCONNECTED = false; 
+      console.log(`server error:\n${err.stack}`);
+      webserver.close();
+    });
 
-    // first time thru:
-    if (udpserver.have_we_recieved_anything_yet == null ) { udpserver.have_we_recieved_anything_yet = true } 
+    // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
+    udp_server.on('message', (msg, rinfo) => {
+        //console.log(udp_server.have_we_recieved_anything_yet);
+        //console.log(rinfo);
 
-    var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
+        // we don't know its sysid yet, but this means we can at least send broadcast/s like heartbeat
+        broadcast_ip_address = {'ip':rinfo.address,'port':rinfo.port, 'type':'udp' }; 
 
-    //console.log("\nUDPRAW:"+array_of_chars+" len:"+array_of_chars.length);
+        ISUDPCONNECTED = true; 
 
-    var packetlist = [];
-    var mavlinktype = undefined;
-    // lets try to support mav1/mav2 with dual parsers.
-    if (array_of_chars[0] == 253 ) { 
-        packetlist = mavlinkParser2.parseBuffer(array_of_chars); 
-        mavlinktype = 2; // known bug, at the moment we assume that if we parsed ONE packet for this sysid in the start of the stream as mav1 or mav2, then they all are
-    } 
-   // if (array_of_chars[0] == 254 ) { 
-   //     packetlist = mavlinkParser1.parseBuffer(array_of_chars); 
-   //     mavlinktype = 1; 
-   // }
-    // if neither, then we do nothing with the empty [] packet list anyway.
+        // first time thru:
+        if (udp_server.have_we_recieved_anything_yet == null ) { udp_server.have_we_recieved_anything_yet = true } 
 
-    //parseBuffer CAN and does 'emit' messages with the parsed result, because of the 'generic' capture/s elsewhere using mavlinkParser1.on(..) 
-    // , the packets trigger a call to mavlink_ip_and_port_handler with the result, but no ip/port data would be kept through 
-    //   the 'emit()' process, so we ALSO return the array-of-chars as an array of mavlink packets, possibly 'none', [ p] single packet , or [p,p,p] packets.
-    // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
+        var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
 
-    // if there's no readable packets in the byte stream, dont try to iterate over it
-    if (packetlist == null ) return;
+        //console.log("\nUDPRAW:"+array_of_chars+" len:"+array_of_chars.length);
 
-    // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
-//    for (msg of packetlist){  
-    mavlink_ip_and_port_handler(packetlist[0],rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
-//    }
+        var packetlist = [];
+        var mavlinktype = undefined;
+        // lets try to support mav1/mav2 with dual parsers.
+        if (array_of_chars[0] == 253 ) { 
+            packetlist = mavlinkParser2.parseBuffer(array_of_chars); 
+            mavlinktype = 2; // known bug, at the moment we assume that if we parsed ONE packet for this sysid in the start of the stream as mav1 or mav2, then they all are
+        } 
+       // if (array_of_chars[0] == 254 ) { 
+       //     packetlist = mavlinkParser1.parseBuffer(array_of_chars); 
+       //     mavlinktype = 1; 
+       // }
+        // if neither, then we do nothing with the empty [] packet list anyway.
 
-    //console.log(msg);    
-    //console.log(array_of_chars);
+        //parseBuffer CAN and does 'emit' messages with the parsed result, because of the 'generic' capture/s elsewhere using mavlinkParser1.on(..) 
+        // , the packets trigger a call to mavlink_ip_and_port_handler with the result, but no ip/port data would be kept through 
+        //   the 'emit()' process, so we ALSO return the array-of-chars as an array of mavlink packets, possibly 'none', [ p] single packet , or [p,p,p] packets.
+        // here's where we store the sorce ip and port with each packet we just made, AFTER the now-useless 'emit' which can't easily do this.
 
-    
-});
+        // if there's no readable packets in the byte stream, dont try to iterate over it
+        if (packetlist == null ) return;
+
+        // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
+    //    for (msg of packetlist){  
+        mavlink_ip_and_port_handler(packetlist[0],rinfo.address,rinfo.port,mavlinktype, "udp" );  // [1] = ip  and [2] = port, mavtype, 'udp' or 'tcp' 
+    //    }
+
+        //console.log(msg);    
+        //console.log(array_of_chars);
+
+        
+    });
+
+} // end connecting udp_server
+
+
+
+//----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+
+// if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
+if (master !== undefined ) {
+  try_connect_serial(master)
+} else {
+    console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n')
+    try_connect_tcp_client()
+    try_connect_udp_server(14550) 
+}
+
+
+//----------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------
+
+
 
 // Attach an event handler for any valid MAVLink message - we use this mostly for unknown packet types, console.log and debug messages. 
 // the majority of specific responses to specifc messages are not handled in the 'generic' handler, but in specific message handlers for each 
@@ -1310,7 +1312,7 @@ var broadcast_ip_address = undefined;
 sysid_to_mavlink_type = {};
 
 
-udpserver.bind(14550+offset);
+//udpserver.bind(14550+offset);
 
 var sysid = 12; // lets assume just one sysid to start with.
 
@@ -1514,7 +1516,7 @@ var heartbeat_handler =  function(message) {
         AllVehicles.add(tmpVehicle, {merge: true}); // 'add' can do "update" when merge=true, in case theres 2 of them somehow.
         //console.log("ADD:"+JSON.stringify(AllVehicles));
 
-        client_set_stream_rates(4,message._header.srcSystem,message._header.srcComponent);
+        set_stream_rates(4,message._header.srcSystem,message._header.srcComponent);
 
         // assemble a new MavFlightMode hook to watch for this sysid:
         //mavFlightModes.push(new MavFlightMode(mavlink10, mavlinkParser1, null, logger,tmp_sysid));
