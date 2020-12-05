@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+//
 // this is a mavlink UDP listener for ArduPlane style vehicles that has a command-line and modules line MAVProxy
 //
 // incoming UDP mavlink/vehicl/sim data at 0.0.0.0:14550 is parsed SERVER SIDE IN NODE.js to generate json messages
@@ -11,11 +13,158 @@
 // uses express 4 + socket.io and  
 // delivers most static content from /static and socketio stuff from /socket.io and /node_index.html is the main page.
 
+
 //-------------------------------------------------------------
 //
 // libraries
 //
 //-------------------------------------------------------------
+
+// arg handling
+const yargs = require('yargs/yargs')
+var argv = require('yargs/yargs')(process.argv.slice(2))
+  .usage('MAVAgent - Node.js and Mavlink\n\nUsage: $0 [options]')
+  .help('help').alias('help', 'h')
+  .version('version', '0.0.1').alias('version', 'V')
+  .options({
+    master: {
+      alias: 'm',
+      description: "<device-id> master serial device name. /dev/ttyUSB0 ",
+      requiresArg: true,
+      required: false
+    },
+    //out: {
+    //  alias: 'o',
+    //  description: "<device-id> output stream",
+    //  requiresArg: true,
+    //  required: false
+    //}
+  })
+  .argv;
+
+//console.log('Inspecting options');
+//console.dir(argv);
+
+var master = undefined;
+if (argv.master !== undefined ) {
+console.log("serial master connection:", argv.master);
+master = argv.master;
+}
+
+
+// the only bit of the serial handling that is outside the 'try connect serial' block, due to its .send
+var serialport = undefined;
+
+var try_connect_serial = function(path) {
+
+
+//https://serialport.io/docs/api-stream reference
+
+    const SerialPort = require('serialport')
+    //const 
+    serialport = new SerialPort(path, { baudRate: 115200, autoOpen: true });// its actually a promise till opened
+
+    serialport.on('open',function(){
+
+      ISSERIALCONNECTED = true; 
+
+      console.log('Serial: connection established !!');
+
+      // serial, not ip, fake the ip, and use path instead of port
+      var ipaddr = '127.0.0.1';
+
+      // we know we can reply here, even without knowing the sysid...
+      broadcast_ip_address = {'ip':ipaddr, 'port':path, 'type':'serial' }; 
+      send_heartbeat_handler(); // doesnt know sysid, heartbeat is ok, as its a broadcast, so 255
+
+      // writing data to server
+      //client.write('hello from client');// we send something so server doesnt drop us
+
+    });
+
+    // uncomment to dump mavlink to screen
+    //serialport.on('data', line => console.log(`> ${line}`))
+
+    serialport.on('data',function(msg){
+      var bread = serialport.bytesRead;
+      var bwrite = serialport.bytesWritten;
+      //console.log('[SerialPort] Bytes read : ' + bread);
+      //console.log('[SerialPort] Bytes written : ' + bwrite);
+      //console.log('[SerialPort] Data sent FROM serial : ' + data);
+
+      //console.log("SER:",msg); //msg is a Buffer
+
+      //echo data
+      //var is_kernel_buffer_full = serialport.write('Data ::' + msg);
+      //if(is_kernel_buffer_full){
+        //console.log('[SerialPort] Data was flushed successfully from kernel buffer i.e written successfully!');
+      //}else{
+      //  serialport.pause();
+      //}
+
+    var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
+    var packetlist = [];
+    if ((mavlinktype == undefined)&&( array_of_chars.includes(253) )) {
+        console.log("found mavlink2 header-serial");
+        mavlinktype = 2;
+    }
+    packetlist = mavlinkParser2.parseBuffer(array_of_chars); // emits msgs
+    // filter the packets
+    function isGood(element, index, array) {
+      return element._id != -1;
+    }
+   // if there's no readable packets in the byte stream, dont try to iterate over it
+    if (packetlist == null ) return;
+    goodpackets = packetlist.filter(isGood);
+
+    //console.log("packets:",packetlist.length,"good:",goodpackets.length)
+
+    if (packetlist == null ) return;
+
+    var rinfo = { address: '127.0.0.1',  port: '/dev/ttyUSB0' }
+    mavlink_ip_and_port_handler(goodpackets[0],rinfo.address,rinfo.port,mavlinktype , "serial");  // [1] = ip  and [2] = port
+
+    });
+
+
+
+//-----------------------------------------------------
+
+    serialport.on('drain',function(){
+      //console.log('[SerialPort] write buffer is empty now .. u can resume the writable stream');
+      serialport.resume();
+    });
+
+    serialport.on('error',function(error){
+      console.log('[SerialPort] ' + error);
+    });
+
+
+
+
+    //serialport.write('ROBOT POWER ON\n')
+    console.log('[SerialPort] initialised.\n')
+
+// serialport.isOpen boolean
+
+//SerialPort Stream object is a Node.js transform stream and implements the standard data and error events in addition to a few others.
+// open
+// error
+//close
+//data
+//drain
+
+}
+
+// if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
+if (master !== undefined ) {
+  try_connect_serial(master)
+} else {
+    console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n')
+}
+
+
+//process.exit(0)
 
 // web server stuff:
 //var app = require('express')();
@@ -30,10 +179,12 @@
 var {mavlink20, MAVLink20Processor} = require("./mav_v2.js"); 
 var mavlinkParser2 = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
 
+
+
 // create the output hooks for the parser/s
 // we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
 // and we accept ip/port either as part of the mavmsg object, or as a sysid in the OPTIONAL 2nd parameter
-generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
+generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
     // this is really just part of the original send()
     buf = mavmsg.pack(this);
 
@@ -76,15 +227,19 @@ generic_mav_udp_and_tcp_sender = function(mavmsg,sysid) {
         client.write( b ); // already open, we hope
     }
 
+    if (mavmsg.type == "serial") {
+        serialport.write( b ); // already open, we hope
+    }
+
     // this is really just part of the original send()
     this.seq = (this.seq + 1) % 256;
     this.total_packets_sent +=1;
     this.total_bytes_sent += buf.length;
 }
 //var origsend1 = MAVLink10Processor.prototype.send;
-//MAVLink10Processor.prototype.send = generic_mav_udp_and_tcp_sender
+//MAVLink10Processor.prototype.send = generic_mav_udp_and_tcp_and_serial_sender
 //var origsend2 = MAVLink20Processor.prototype.send;
-MAVLink20Processor.prototype.send = generic_mav_udp_and_tcp_sender
+MAVLink20Processor.prototype.send = generic_mav_udp_and_tcp_and_serial_sender
 
 // most modules are loadable/unloadable, but these few here aren't right now.
 var MavParams = require("./modules/mavParam.js");   // these are server-side js libraries for handling some more complicated bits of mavlink
@@ -103,6 +258,7 @@ var Backbone = require("backbone");
 //    input: process.stdin,
 //    output: process.stdout
 //});
+
 
 
 //-------------------------------------------------------------
@@ -243,10 +399,17 @@ const dgram = require('dgram');
 const udpserver = dgram.createSocket('udp4');
 
 
-// set true when we se some soet of mavlink, either via tcp:localhost:5760 or as incoming udp stream
+// set true when we see some sort of mavlink, either via tcp:localhost:5760 or as incoming udp stream
 // once UDP is successful, tcp stops connection-retrying.
 var ISUDPCONNECTED = false; 
 var ISTCPCONNECTED = false; 
+var ISSERIALCONNECTED = false;
+
+//-----------------------------------------------------------------------------------------------
+
+// uart serial handling
+
+
 
 //-----------------------------------------------------------------------------------------------
 // also setup TCP server and tcp client as connection options
@@ -489,29 +652,22 @@ var show_stream_rates = function() {
         //data_timeout = 0;
     }
 
-    
-    if (rate == 0) { rate = newrate;} else {  rate = Math.floor(((rate*4)+newrate)/5); }
+    if ((data_timeout > 5) && (ISSERIALCONNECTED)) { 
+        console.log("incoing serial stream has gone away, sorry.");
+        ISSERIALCONNECTED=false;
+        //data_timeout = 0;
+    }
+
+    //first time through, assume 120 for no reason other than its plausible, 'newrate' works well for non-serials.
+    if (rate == 0) { rate = 120;} else {  rate = Math.floor(((rate*4)+newrate)/5); }
 
     last_pkt_cnt = mavlinkParser2.total_packets_received;
 
 }
 
-var client_send_heartbeat = function() {
+// client.   udpserver.  and port.  might all come thru here.
+var send_heartbeat_handler = function() {
 
-   //console.log(client);
-   //don't send unless we are connected, probably dont need all of these..
-   if (client.connecting == true ) {return; } // when other end wasnt there to start with
-
-  // don't sent tcp heartbeats if we are using udp.
-  if (ISUDPCONNECTED == true) {return;}
-
-   if (client.readable == false ) {
-        //console.log("tcp not readable");
-        client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
-        return; 
-    }// when other end goes-away unexpectedly
-
-   //if (client._sockname == null ) {console.log("sockname is null");return; }
 
    var heartbeat = new mavlink20.messages.heartbeat(); 
       heartbeat.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
@@ -528,6 +684,27 @@ var client_send_heartbeat = function() {
  //console.log(" sending heardbeat over tcp link ");
     process.stdout.write('>');
 
+}
+
+// basic checks of tcp link before trying to send
+var client_send_heartbeat = function() {
+
+   //console.log(client);
+   //don't send unless we are connected, probably dont need all of these..
+   if (client.connecting == true ) {return; } // when other end wasnt there to start with
+
+  // don't sent tcp heartbeats if we are using udp.
+  //if (ISUDPCONNECTED == true) {return;}
+
+   if (client.readable == false ) {
+        //console.log("tcp not readable");
+        client.emit('error', 'tcp not readable'); // tell the error handler that will try re-connecting.
+        return; 
+    }// when other end goes-away unexpectedly
+
+   //if (client._sockname == null ) {console.log("sockname is null");return; }
+
+    send_heartbeat_handler();
 
 }
 
@@ -594,7 +771,12 @@ var last_error = undefined;
 client.on('error',function(error){
 
     if (ISUDPCONNECTED)  {  
-        console.log("using incoming UDP data, stopped retries on TCP");    
+        //console.log("using incoming UDP data, stopped retries on TCP");    
+        return;
+    }
+
+    if (ISSERIALCONNECTED)  {  
+        //console.log("using incoming SERIAL data, stopped retries on TCP");    
         return;
     }
 
@@ -1050,7 +1232,7 @@ var generic_message_handler = function(message) {
             'MISSION_ITEM', 'MISSION_ITEM_INT','MISSION_COUNT','MISSION_REQUEST', 'MISSION_ACK',
             'AIRSPEED_AUTOCAL', 'MISSION_ITEM_REACHED' , 'STAT_FLTTIME' ,'AUTOPILOT_VERSION' ,
              'FENCE_STATUS' , 'AOA_SSA' , 'GPS_GLOBAL_ORIGIN', 'TERRAIN_REQUEST', 
-            'FILE_TRANSFER_PROTOCOL', ].includes(message._name) ) { 
+            'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS',].includes(message._name) ) { 
             
 	console.log('gmh:');
 	console.log(message);  // emit any message type that we don't list above, as we dont know about it...
