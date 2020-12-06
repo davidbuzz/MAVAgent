@@ -20,6 +20,9 @@ var log;
 // Hash of pending-expected acks
 var pendingAcks = {};
 
+// hash of fetched_params indexed by param name as string
+var param_table = {};
+
 // Hash of handlers monitoring async send/receive pairs
 var senderHandler = {};
 
@@ -28,6 +31,20 @@ var timeoutWatcher = {};
 
 // Reference to the active mavlink parser/link object in use
 var mavlinkParser;
+
+
+MavParam.prototype.show_fetched_params = function (pattern) {
+    //console.log(param_table);
+    if (pattern != undefined) console.log("showing params containing:",pattern);
+    if (pattern == undefined) console.log("showing all params:");
+    for ( x in param_table ){
+        if  ((pattern != undefined) && (x.includes(pattern)) ) {
+            console.log(x, param_table[x]['param_value'])
+        } else if (pattern == undefined) {
+            console.log(x, param_table[x]['param_value'])
+        }
+    }
+}
 
 // Function that globallby binds to parameter-managing events and handles them as required
 function paramHandler(msg) {
@@ -38,6 +55,14 @@ function paramHandler(msg) {
     if(pendingAcks[msg.param_id]) {
         delete pendingAcks[msg.param_id];
     }
+    // FS_OPTIONS\u0000\u0000\u0000\u0000\u0000\u0000'
+    var terminator_idx = msg.param_id.indexOf('\u0000') // null string terminator
+    var idx = msg.param_id.substring(0,terminator_idx);
+    //console.log("param response:",msg.param_id);
+    process.stdout.write('^');
+    param_table[idx] =  {   'param_value':msg.param_value,  'param_type':msg.param_type,  'param_count':msg.param_count,  'param_index':msg.param_index , 'ts':Date.now()};
+    // ts = number of milliseconds elapsed since January 1, 1970 00:00:00 UTC.
+
 }
 
 // Log object is assumed to be a winston object.
@@ -57,7 +82,7 @@ MavParam.prototype.set = function(name, value, retries) {
     retries = typeof retries !== 'undefined' ? retries : 3000;
 
     // Build PARAM_SET message to send 
-    var param_set = new mavlink.messages.param_set(mavlinkParser.srcSystem, mavlinkParser.srcComponent, name, value, 0); // extra zero = don't care about type
+    var param_set = new mavlink20.messages.param_set(mavlinkParser.srcSystem, mavlinkParser.srcComponent, name, value, 0); // extra zero = don't care about type
 
     // Establish a handler to try and send the required packet every second until cancelled
     senderHandler[name] = setInterval( function() {
@@ -77,12 +102,27 @@ MavParam.prototype.set = function(name, value, retries) {
 
 MavParam.prototype.get = function(name) {
     var index = -1; // this will use the name as the lookup method
-    var param_request_read = new mavlink.messages.param_request_read(mavlinkParser.srcSystem, mavlinkParser.srcComponent, name, index);
+  //  var param_request_read = //new mavlink20.messages.param_request_read(mavlinkParser.srcSystem, mavlinkParser.srcComponent, name, index);
+
+
+ var param_request_read = new mavlink20.messages.param_request_read(); 
+      param_request_read.param_index = (new Int16Array([-1]))[0]; // fieldtype: int16_t  isarray: False 
+      param_request_read.target_system = 1; // fieldtype: uint8_t  isarray: False 
+      param_request_read.target_component = 0; // fieldtype: uint8_t  isarray: False 
+      param_request_read.param_id = name;//"EFGHIJKLMNOPQRS"; // fieldtype: char  isarray: False 
+
+    console.log("param_request_read");
+
     mavlinkParser.send(param_request_read);
 };
 
 MavParam.prototype.getAll = function() {
-    var param_request_list = new mavlink.messages.param_request_list(mavlinkParser.srcSystem, mavlinkParser.srcComponent);
+    var param_request_list = new mavlink20.messages.param_request_list();
+      param_request_list.target_system = 1; // fieldtype: uint8_t  isarray: False 
+      param_request_list.target_component = 0; // fieldtype: uint8_t  isarray: False 
+
+    console.log("param_request_list");
+
     mavlinkParser.send(param_request_list);
 };
 

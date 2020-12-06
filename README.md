@@ -79,19 +79,21 @@ node mav-agent.js
 	q  - Quit
 	h  - this Help text
 
-	d  - Debug Dump of MAVLink20Processor and MAVLinkSigning objects, full stats and highlighting.
+	d             - Debug Dump of MAVLink20Processor and MAVLinkSigning objects, full stats and highlighting.
 
-	a  - load All avail modules
-	m  - list loaded Modules
+	a             - load All avail modules
+	m             - list loaded Modules
 
-	b  - load 'Better' module, demo, etc ,it will try to ARM your vehicle and keep it armed.
-	ub  - Unload 'Better' module , might want to do this before usig 'ss' 
+	b             - load 'Better' module, demo, etc ,it will try to ARM your vehicle and keep it armed.
+	ub            - Unload 'Better' module , might want to do this before usig 'ss' 
 
-	s  - load 'Signing' module, which reports on signing events/status.
-	ss - Setup Signing, quite complex, but tries to DISARM, then activate SIGNING on this connection
-	uu - Deactivate Signing on this connection (uu undoes the work of ss )
-	us - Unload 'Signing' module
+	s             - load 'Signing' module, which reports on signing events/status.
+	ss qwertyuiop - Setup Signing with given key, quite complex, but tries to DISARM, then activate SIGNING on this connection
+	uu            - Deactivate Signing on this connection (uu undoes the work of ss )
+	us            - Unload 'Signing' module
 
+	p             - fetch all params from vehicle into local list
+	ps STAT      - show a subset of params that match the given pattern (eg STAT), or the entire list
 
 ----------------------------------------------------------------------
 Example start-up output:

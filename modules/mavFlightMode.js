@@ -105,7 +105,7 @@ MavFlightMode.prototype.attachHandlers = function(sysid,mavlink,mavlinkParser,st
         // arduplane uses packet.custom_mode to index into mode_mapping_apm - TODO copter uses acm
         newState.mode = mode_mapping_apm[heartbeat.custom_mode]; 
         //console.log("ardumode:"+newState.mode);
-		newState.armed = ( mavlink.MAV_MODE_FLAG_SAFETY_ARMED & heartbeat.base_mode ) ? true : false;		
+		newState.armed = ( mavlink20.MAV_MODE_FLAG_SAFETY_ARMED & heartbeat.base_mode ) ? true : false;		
 
         // todo this code is a bit old, we don't use anything from this list except '.mode' and '.armed' at the moment.
         if ( ( state.auto == newState.auto) &&( state.guided == newState.guided) &&( state.stabilize == newState.stabilize) &&

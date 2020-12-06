@@ -62,7 +62,7 @@ sendToVehicle = function() {
     console.log('MavMission sendToVehicle triggered ok');
 
 	// send mission_count
-	var missionCount = new mavlink.messages.mission_count(mavlinkParser.srcSystem, mavlinkParser.srcComponent, missionItems.length);
+	var missionCount = new mavlink20.messages.mission_count(mavlinkParser.srcSystem, mavlinkParser.srcComponent, missionItems.length);
 	mavlinkParser.send(missionCount, uavConnection);
 
 	// attach mission_request handler, let it cook
@@ -71,7 +71,7 @@ sendToVehicle = function() {
 	//var self = this;
 	// If the ack is OK, signal OK; if not, signal an error event
 	mavlinkParser.on('MISSION_ACK', function(ack) {
-		if(mavlink.MAV_MISSION_ACCEPTED === ack.type) {
+		if(mavlink20.MAV_MISSION_ACCEPTED === ack.type) {
             console.log('mission:loaded');
 			this.emit('mission:loaded');
 		} else {
@@ -135,7 +135,7 @@ MavMission.prototype.addMissionItem = function(missionItemMessage) {
 
 MavMission.prototype.clearMission = function(first_argument) {
 	missionItems = [];
-	var missionClearAll = new mavlink.messages.mission_clear_all(mavlinkParser.srcSystem, mavlinkParser.srcComponent);
+	var missionClearAll = new mavlink20.messages.mission_clear_all(mavlinkParser.srcSystem, mavlinkParser.srcComponent);
 	mavlinkParser.send(missionClearAll);
 };
 
@@ -156,7 +156,7 @@ loadMission = function(mission) {
 //	_.each(soccerFieldFlight, function(e, i, l) {
 	_.each(missionItems, function(e, i, l) {
 		// target_system, target_component, seq, frame, command, current, autocontinue, param1, param2, param3, param4, x, y, z
-		mi = new mavlink.messages.mission_item(
+		mi = new mavlink20.messages.mission_item(
 			mavlinkParser.srcSystem,
 			mavlinkParser.srcComponent,
 			e[0],    // seq
