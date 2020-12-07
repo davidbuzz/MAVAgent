@@ -66,11 +66,14 @@ function paramHandler(msg) {
 }
 
 // Log object is assumed to be a winston object.
-function MavParam(mavlinkParserObject, logger) {
+function MavParam(target_system,target_component,mavlinkParserObject, logger) {
     
     log = logger;
     mavlinkParser = mavlinkParserObject;
     mavlinkParser.on('PARAM_VALUE', paramHandler);
+
+    this.target_system = target_system; 
+    this.target_component = target_component; 
 
 }
 
@@ -107,8 +110,8 @@ MavParam.prototype.get = function(name) {
 
  var param_request_read = new mavlink20.messages.param_request_read(); 
       param_request_read.param_index = (new Int16Array([-1]))[0]; // fieldtype: int16_t  isarray: False 
-      param_request_read.target_system = 1; // fieldtype: uint8_t  isarray: False 
-      param_request_read.target_component = 0; // fieldtype: uint8_t  isarray: False 
+      param_request_read.target_system = this.target_system // fieldtype: uint8_t  isarray: False 
+      param_request_read.target_component = this.target_component; // fieldtype: uint8_t  isarray: False 
       param_request_read.param_id = name;//"EFGHIJKLMNOPQRS"; // fieldtype: char  isarray: False 
 
     console.log("param_request_read");

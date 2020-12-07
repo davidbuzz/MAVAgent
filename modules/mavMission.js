@@ -40,12 +40,14 @@ var commandMap;
 var missionItems = [];
 
 // Mission object constructor
-MavMission = function(mavlinkProtocol, mavlinkProtocolInstance, uavConnectionObject, logger) {
 
 	log = logger;
 	mavlink = mavlinkProtocol;
 	mavlinkParser = mavlinkProtocolInstance;
 	uavConnection = uavConnectionObject;
+    constructor(target_system,target_component,mavlinkProtocol, mavlinkProtocolInstance, uavConnectionObject, logger) {
+        this.target_system = target_system; 
+        this.target_component = target_component; 
 
 }
 

@@ -158,10 +158,6 @@ var MavParams = require("./modules/mavParam.js");   // these are server-side js 
 var MavFlightMode = require("./modules/mavFlightMode.js");
 var MavMission = require('./modules/mavMission.js');
 
-// objects
-// MavParams are for handling loading parameters
-var ParamsObj = new MavParams(mavParserObj,logger);
-
 
 console.log(JSON.stringify(MavFlightMode));
 
@@ -365,6 +361,8 @@ function LoadModules() {
 //
 //-------------------------------------------------------------
 
+var ParamsObj = undefined;
+var MissionObj = undefined;
 
 // the passed in this is a Buffer of chars, we will change this to chars and words inside
 process_cmdline = function(cmdline) {
@@ -439,11 +437,23 @@ process_cmdline = function(cmdline) {
 
     // get all params
     if (args[0] == "p") { 
+
+      // objects
+        // MavParams are for handling loading parameters
+        if (ParamsObj ==undefined ) ParamsObj = new MavParams(SYSID,COMPID,mavParserObj,logger);
+
+
         ParamsObj.getAll();
     }
 
     // ps = Param Show
-    if (args[0] == "ps") { 
+    if ((args[0] == "ps")||(args[0] == "pp")) { 
+
+      // objects
+        // MavParams are for handling loading parameters
+        if (ParamsObj ==undefined ) ParamsObj = new MavParams(SYSID,COMPID,mavParserObj,logger);
+
+
         var pattern = undefined;
         if (args[1] != undefined) {pattern = args[1].toUpperCase();}
         ParamsObj.show_fetched_params(pattern);
@@ -451,6 +461,11 @@ process_cmdline = function(cmdline) {
 
     // demo retrieve one param
     if (args[0] == "r") { 
+
+      // objects
+        // MavParams are for handling loading parameters
+        if (ParamsObj ==undefined ) ParamsObj = new MavParams(SYSID,COMPID,mavParserObj,logger);
+
         ParamsObj.get('SERIAL0_PROTOCOL');
     }
 
