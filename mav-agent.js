@@ -469,6 +469,43 @@ process_cmdline = function(cmdline) {
         ParamsObj.get('SERIAL0_PROTOCOL');
     }
 
+    // Send Mission to drone
+    if (args[0] == "sm") { 
+  
+        // obj for missions
+        if (MissionObj ==undefined )  MissionObj = new MavMission(SYSID,COMPID,mavlink20, mavParserObj , null, logger);
+
+        // load a mission in js format...
+        var miss = undefined;
+
+        // load by number
+        if (args[1] == "1")   miss = require("./gotmission1.js");
+        if (args[1] == "2")   miss = require("./gotmission2.js");
+        if (args[1] == "3")   miss = require("./gotmission3.js");
+
+        console.log('START SEND MISSION to drone:',args[1])
+        // awaiting in a non-async is like this...
+        MissionObj.MissionToDrone(miss).then(results => { console.log('END SEND MISSION to drone');  });
+
+    }
+
+    // Get Mission from drone
+    if (args[0] == "gm") { 
+
+        var writefilename = "./gotmission1.js"; // default if not specificed
+        if (args[1] == "1") writefilename = "./gotmission1.js";
+        if (args[1] == "2") writefilename = "./gotmission2.js";
+        if (args[1] == "3") writefilename = "./gotmission3.js";
+  
+        // obj for missions
+        if (MissionObj ==undefined )  MissionObj = new MavMission(SYSID,COMPID,mavlink20, mavParserObj , null, logger);
+
+        console.log('START READ MISSION from drone')
+        // awaiting in a non-async is like this...
+        MissionObj.DroneToMission(writefilename).then(results => { console.log('END READ MISSION from drone');  });
+
+    }
+
   // h for help, or ? 
   if ((args[0] == "h")||(args[0] == "?")) { 
         console.log("\tAvailable commands:" );
@@ -491,6 +528,9 @@ process_cmdline = function(cmdline) {
         console.log("");
         console.log("\tp            - fetch all params from vehicle into local list" );
         console.log("\tps [word]    - show a subset of params that match the given word/pattern (eg STAT), or the entire list" );
+        console.log("");
+        console.log("\tgm [1]       - Get Mission from drone and save to file ./gotmission1.js etc  Works for 1,2,3" );
+        console.log("\tsm [1]       - Send Mission to drone from local file ./gotmission1.js etc  Works for 1,2,3" );
         console.log("");
   }
   
@@ -600,7 +640,9 @@ var generic_message_handler = function(message) {
             'MISSION_ITEM', 'MISSION_ITEM_INT','MISSION_COUNT','MISSION_REQUEST', 'MISSION_ACK',
             'AIRSPEED_AUTOCAL', 'MISSION_ITEM_REACHED' , 'STAT_FLTTIME' ,'AUTOPILOT_VERSION' ,
              'FENCE_STATUS' , 'AOA_SSA' , 'GPS_GLOBAL_ORIGIN', 'TERRAIN_REQUEST', 
-            'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS',].includes(message._name) ) { 
+            'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS','AUTOPILOT_VERSION_REQUEST',
+            'REQUEST_DATA_STREAM',
+            ].includes(message._name) ) { 
             
 	console.log('unhandled msg type - please add it to the list....:');
 	console.log(message);  // emit any message type that we don't list above, as we dont know about it...
@@ -624,7 +666,6 @@ var generic_message_handler = function(message) {
               message.param_id.startsWith('INS_GYR_ID')  || 
               message.param_id.startsWith('INS_GYR2_ID')  || 
               message.param_id.startsWith('INS_GYR3_ID')  || 
-
 
               message.param_id.startsWith('INS_GYROFFS_X')  || 
               message.param_id.startsWith('INS_GYROFFS_Y')  || 
@@ -652,21 +693,25 @@ var generic_message_handler = function(message) {
 
 
     if (  ['MISSION_ITEM' ].includes(message._name) ) {
-       // console.log(`MISSION_ITEM command= ${message.command} x= ${message.x} y= ${message.y} z= ${message.z} `);
+        console.log(`MISSION_ITEM command= ${message.command} x= ${message.x} y= ${message.y} z= ${message.z} `);
     } 
 
     if (  ['MISSION_ITEM_INT' ].includes(message._name) ) {
-        console.log(`MISSION_ITEM_INT seq= ${message.seq} command= ${message.command} x= ${message.x} y= ${message.y} z= ${message.z} `);
+        //console.log(`MISSION_ITEM_INT seq= ${message.seq} command= ${message.command} x= ${message.x} y= ${message.y} z= ${message.z} `);
         //console.log(message);
     } 
 
     if (  ['MISSION_COUNT' ].includes(message._name) ) {
-       // console.log(`MISSION_COUNT number of mission items:= ${message.count} `); moved to mavMission.js
+       // console.log(`MISSION_COUNT number of mission items:= ${message.count} `); //moved to mavMission.js
 
     } 
 
+    if (  ['MISSION_REQUEST' ].includes(message._name) ) {
+        //console.log(`MISSION_REQUEST recieved `);
+    } 
+
     if (  ['MISSION_ACK' ].includes(message._name) ) {
-        console.log(`MISSION_ACK recieved `);
+        //console.log(`MISSION_ACK recieved `);
     } 
 
     if (  ['MISSION_ITEM_REACHED' ].includes(message._name) ) {
