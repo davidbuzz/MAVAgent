@@ -186,6 +186,7 @@ require('events').EventEmitter.defaultMaxListeners = 0;
 // console prompt
 var MODE = 'UNKNOWN';
 var SYSID = ' ';
+var COMPID = ' ';
 
 // modules
 var modules = {};
@@ -212,6 +213,7 @@ _emitterClass.prototype.emit = function( msgname, msgdata) {
 
         if ((msgname == 'attitude') && (msgdata.sysid != undefined)) {  
             SYSID =  msgdata.sysid;  
+            COMPID = msgdata.compid;
         } // eg '1'
 
         //TIP - the messages going throu here is basically anything emitted with io.of(IONameSpace).emit(..)
@@ -503,7 +505,7 @@ process.stdin.on('readable', function () {
 
     partialine = [];
 
-    process.stdout.write("\nMAVAGENT-"+MODE+">"+SYSID+"> ");
+    process.stdout.write("\nMAVAGENT-"+MODE+">"+SYSID+"+"+COMPID+"> ");
 
   }
 
@@ -695,7 +697,8 @@ initialize: function(){
 
 defaults: {
   
-  //sysid: 0,    // mavlink THIS_MAV ID of this aircraft
+  //sysid: 0  is the 'id' of this backbone obj   // mavlink THIS_MAV ID of this aircraft
+  compid: 0,    // mavlink component ID of this aircraft, set by att_handler for now.
   speed: undefined, // kph.  Who the hell sets this?? TODO =P
   // this can likely be removed since we are most likely interested in ground speed
 
@@ -1004,11 +1007,13 @@ var att_handler = function(message) {
             yaw: Math.round(message.yaw * 180.0 / 3.14159 *100)/100,
             pitchspeed: message.pitchspeed,
             rollspeed: message.rollspeed,
-            yawspeed: message.yawspeed
+            yawspeed: message.yawspeed,
+            compid: message._header.srcComponent
         });
         //console.log("UPDATE ATTITUDE:"+JSON.stringify(AllVehicles));
 
         io.of(IONameSpace).emit('attitude', { 'sysid': current_vehicle.get('id'), 
+                                       'compid': current_vehicle.get('compid'), 
                                        'pitch': current_vehicle.get('pitch'), 
                                       'roll': current_vehicle.get('roll'), 
                                       'yaw': current_vehicle.get('yaw')} );
