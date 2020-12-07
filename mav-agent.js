@@ -55,6 +55,7 @@ master = argv.master;
 var serialport = undefined;
 var client  = undefined;
 var udp_server  = undefined;
+var udp_client_out  = undefined;
 
 
 
@@ -66,10 +67,10 @@ var {mavlink20, MAVLink20Processor} = require("./mav_v2.js");
 //var mavParserObj = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
 
 
-var {SmartSerialLink,SmartUDPLink,SmartTCPLink,mpo,get_broadip_table,get_sys_to_ip_table} = require("./smartlinks.js");
+var {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo,get_broadip_table,get_sys_to_ip_table} = require("./smartlinks.js");
 
      //   console.log("main",SmartSerialLink);
-     //   console.log("main",SmartUDPLink);
+     //   console.log("main",SmartUDPInLink);
      //   console.log("main",SmartTCPLink);
      //   console.log("main",mavParserObj);
      //   console.log("main",mpo);
@@ -77,8 +78,8 @@ var {SmartSerialLink,SmartUDPLink,SmartTCPLink,mpo,get_broadip_table,get_sys_to_
 var broadcast_ip_address = get_broadip_table();
 var sysid_to_ip_address = get_sys_to_ip_table();
 
-        console.log("main",broadcast_ip_address);
-        console.log("main",sysid_to_ip_address);
+//        console.log("main",broadcast_ip_address);
+//        console.log("main2",sysid_to_ip_address);
 
 // lookup table we populate later.
 //sysid_to_ip_address = {};
@@ -126,6 +127,12 @@ generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
         return;
     } 
 
+    // at startup, till we've had at least one INCOMING packet, we can't send.
+    if ((mavmsg.type == "udpout")&&(udp_client_out.have_we_recieved_anything_yet == null )) { 
+        //console.log('mavlink udpout write not possible yet,dropped packet.');
+        return;
+    } 
+
     const b = Buffer.from(buf);// convert from array object to Buffer so we can UDP send it.
 
     //console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
@@ -134,6 +141,10 @@ generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
     // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
     if (mavmsg.type == "udp") {
         udp_server.send( b, mavmsg.port, mavmsg.ip ); 
+    }
+
+    if (mavmsg.type == "udpout") {
+        udp_client_out.send( b, mavmsg.port, mavmsg.ip  );
     }
 
     if (mavmsg.type == "tcp") {
@@ -248,15 +259,6 @@ IONameSpace = '/MAVControl';
 //const nsp = io.of(IONameSpace);
 
 //-----------------------------------------------------------------------------------------------
-
-// set one of these true when we see some sort of mavlink, either via tcp:localhost:5760 or as incoming udp stream
-// once UDP is successful, then the other connection/s can stop re-trying etc.
-//var ISUDPCONNECTED = false; 
-//var ISTCPCONNECTED = false; 
-//var ISSERIALCONNECTED = false;
-
-//-----------------------------------------------------------------------------------------------
-
 
 
 //----------------------------------------------------------------------------------
@@ -610,8 +612,9 @@ if (master !== undefined ) {
   serialport = new SmartSerialLink(master);
 } else {
     console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n')
-    client = new SmartTCPLink('127.0.0.1',5760)
-    udp_server = new SmartUDPLink(14551);
+    client = new SmartTCPLink('127.0.0.1',57601)
+    udp_server = new SmartUDPInLink(14553);
+    udp_client_out = new SmartUDPOutLink('127.0.0.1',14552);
 }
 
 
