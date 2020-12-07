@@ -752,7 +752,7 @@ mavFlightModes.push(new MavFlightMode(mavlink20, mavParserObj, null, logger,sysi
 var VehicleClass = Backbone.Model.extend({
 
 initialize: function(){
-        console.log("Vehicle-Backbone is initialized");
+        console.log("Vehicle-Backbone is initialized - sysid",this.id);
     },
 
 defaults: {
@@ -838,9 +838,9 @@ var AllVehiclesClass = Backbone.Collection.extend({
 //-------------------------------------------------------------
 
 AllVehicles = new AllVehiclesClass();
-FirstVehicle = new VehicleClass({id:sysid});
+FirstVehicle = undefined ; //new VehicleClass({id:sysid});
 
-var __current_vehicle = FirstVehicle; // default it to something, doesn't matter, so long as not undef
+var __current_vehicle = undefined; //FirstVehicle; // default it to something, doesn't matter, so long as not undef
 function get_current(){
 return __current_vehicle = AllVehicles.get(tmp_sysid);
 }
