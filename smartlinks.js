@@ -16,7 +16,9 @@ var ISSERIALCONNECTED = false;
 var broadcast_ip_address = {'ip':'127.0.0.1', 'port':'something', 'type':'else' }; 
 var sysid_to_ip_address = {};
 
-var link_list = [];  // a list of instantiated Smart*Link objs
+var link_list = [];  // a list of instantiated Smart*Link objs to drone
+
+var out_list = [];  // a list of instantiated Smart*Link objs to other gcs's
 
 var get_broadip_table = function() { return broadcast_ip_address; }
 var get_sys_to_ip_table = function() { return sysid_to_ip_address; }
@@ -37,11 +39,21 @@ add_link = function(thingname) {
 
 }
 
+add_out = function(thingname) {
+
+    var words = thingname.split(':'); 
+
+    if (words[0] == 'serial')  out_list.push(new SmartSerialLink(words[1],true));
+    if (words[0]  == 'tcp')    out_list.push(new SmartTCPLink(words[1],words[2],true));
+    if (words[0]  == 'udpin')  out_list.push(new SmartUDPInLink(words[2]),true);
+    if (words[0]  == 'udpout') out_list.push(new SmartUDPOutLink(words[1],words[2],true));
+
+}
 
 // create the output hooks for the parser/s
 // we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
 // and we accept ip/port either as part of the mavmsg object, or as a sysid in the OPTIONAL 2nd parameter
-generic_sender = function(mavmsg,sysid) {
+generic_link_sender = function(mavmsg,sysid) {
     //console.log("generic send");
     // this is really just part of the original send()
     buf = mavmsg.pack(this);
@@ -60,11 +72,27 @@ generic_sender = function(mavmsg,sysid) {
     this.total_bytes_sent += buf.length;
 }
 
+
+generic_out_sender = function(buf) {
+
+   for ( l in out_list){
+        var lll= out_list[l];
+
+        //console.log("generic out sender",lll.constructor.name);
+        //process.stdout.write('o');
+
+        // if (lll.is_connected()) 
+        lll.ZZsend(buf);
+    }
+
+}
+
 var logger = null;//console; //winston.createLogger({transports:[new(winston.transports.File)({ filename:'mavlink.dev.log'})]});
 
 //var origsend2 = MAVLink20Processor.prototype.send;
-MAVLink20Processor.prototype.send = generic_sender;
+MAVLink20Processor.prototype.send = generic_link_sender;
 MAVLink20Processor.prototype.add_link = add_link;
+MAVLink20Processor.prototype.add_out = add_out;
 
 var mpo = new MAVLink20Processor(logger, 255,190); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
 
@@ -110,7 +138,7 @@ var set_stream_rates = function(rate,target_system,target_component) {
 
 class SmartSerialLink extends SerialPort {
 
-    constructor (path) {
+    constructor (path, is_output) {
 
         super(path, { baudRate: 115200, autoOpen: true });
         //this = new SerialPort(path, { baudRate: 115200, autoOpen: true });// its actually a promise till opened
@@ -118,9 +146,9 @@ class SmartSerialLink extends SerialPort {
         this.__path=path;
 
         this.last_error = undefined;
-
         this.mavlinktype = undefined;
         this.streamrate = undefined;
+        this.is_output = is_output;
 
         console.log('[SerialPort] initialised.\n');
 
@@ -162,13 +190,16 @@ class SmartSerialLink extends SerialPort {
         //this.on('data', line => console.log(`> ${line}`))
 
         this.on('data',function(msg){
+
+            if (this.is_output === undefined ) generic_out_sender(msg); // also forward the packet to all --outputs
+
             var bread = this.bytesRead;
             var bwrite = this.bytesWritten;
             //console.log('[SerialPort] Bytes read : ' + bread);
             //console.log('[SerialPort] Bytes written : ' + bwrite);
             //console.log('[SerialPort] Data sent FROM serial : ' + data);
 
-            //console.log("SER:",msg); //msg is a Buffer
+            console.log("SER:",this.is_output,msg); //msg is a Buffer
 
             //echo data
             //var is_kernel_buffer_full = this.write('Data ::' + msg);
@@ -315,13 +346,14 @@ const net = require('net');
 
 class SmartTCPLink extends net.Socket {
 
-    constructor (ip,port) {
+    constructor (ip,port,is_output) {
         super()
 
         this.last_error = undefined;
 
         this.remote_ip = ip;//'127.0.0.1';
         this.remote_port = port;//5760;
+        this.is_output = is_output;
 
         this.connect({
           host:this.remote_ip,
@@ -380,6 +412,8 @@ class SmartTCPLink extends net.Socket {
 
         // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
         this.on('data',function(msg){ // msg = a Buffer() of data
+
+             if (this.is_output === undefined ) generic_out_sender(msg); // also forward the packet to all --outputs
 
             var rinfo = this.address() // return { address: '127.0.0.1', family: 'IPv4', port: 40860 }
             var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
@@ -476,11 +510,12 @@ var buffer = require('buffer');
 class SmartUDPOutLink extends dgram.Socket {
 
 
-    constructor (ip, portnum) {
+    constructor (ip, portnum,is_output) {
         super('udp4')
 
        // this.have_we_recieved_anything_yet  = undefined;
 
+        this.is_output = is_output;
         this.eventsetup();
 
        // this = udp.createSocket('udp4');
@@ -562,6 +597,10 @@ class SmartUDPOutLink extends dgram.Socket {
    //     var data = Buffer.from('siddheshrane');
 
         this.on('message',function(msg,rinfo){
+
+
+            if (this.is_output === undefined ) generic_out_sender(msg); // also forward the packet to all --outputs
+
 //console.log("udp client message");
      //     console.log('Data received from server : ' + msg.toString());
      //     console.log('Received %d bytes from %s:%d\n',msg.length, info.address, info.port);
@@ -620,13 +659,14 @@ console.log("udp client send");
 
 class SmartUDPInLink extends dgram.Socket {
 
-    constructor (portnum) {
+    constructor (portnum,is_output) {
         super('udp4')
 
         this.bind(portnum);
 
    //     this.have_we_recieved_anything_yet  = undefined;
 
+        this.is_output = is_output;
         this.last_rinfo = undefined;
         this.eventsetup();
     }
@@ -660,6 +700,8 @@ class SmartUDPInLink extends dgram.Socket {
         // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
         this.on('message', (msg, rinfo) => {
 
+             if (this.is_output === undefined ) generic_out_sender(msg); // also forward the packet to all --outputs
+
             this.last_rinfo = rinfo;
             //console.log(this.have_we_recieved_anything_yet);
             //console.log(rinfo);
@@ -689,6 +731,7 @@ class SmartUDPInLink extends dgram.Socket {
 
             // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
 
+            if ( packetlist[0] === undefined ) return;
             if ( packetlist[0]._header !== undefined ) 
              sysid_to_ip_address[packetlist[0]._header.srcSystem] = {'ip':rinfo.address, 'port':rinfo.port, 'type':"udp" }; 
         });

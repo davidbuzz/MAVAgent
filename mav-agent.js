@@ -531,9 +531,10 @@ if (master !== undefined ) {
 } else {
     console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n');
     mpo.add_link('tcp:localhost:5760');
-    mpo.add_link('udpin:blerg:14551');
-    mpo.add_link('udpout:localhost:14552');
+    //mpo.add_link('udpin:blerg:14551');
+    //mpo.add_link('udpout:localhost:14552');
 
+    mpo.add_out('udpout:localhost:14552');
 }
 
 
@@ -550,6 +551,9 @@ var generic_message_handler = function(message) {
     // don't dissplay or handle parsing errors -  ie Bad prefix errors, but allow signing errors thru
     if ((message._id == -1 ) && (message._reason != 'Invalid signature') ) { return;}
 
+    // for packets arriving in from a --out target, their target sysid is NOT us...
+    if (message.target_system < 250 ) { /*console.log('--out sending:',message._name); */ mpo.send(message);   } 
+
 
     // console.log all the uncommon message types we DONT list here. 
     if ( ! ['GPS_RAW_INT', 'VFR_HUD', 'ATTITUDE', 'SYS_STATUS', 'GLOBAL_POSITION_INT', 'HEARTBEAT','VIBRATION',
@@ -563,7 +567,8 @@ var generic_message_handler = function(message) {
             'AIRSPEED_AUTOCAL', 'MISSION_ITEM_REACHED' , 'STAT_FLTTIME' ,'AUTOPILOT_VERSION' ,
              'FENCE_STATUS' , 'AOA_SSA' , 'GPS_GLOBAL_ORIGIN', 'TERRAIN_REQUEST', 
             'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS','AUTOPILOT_VERSION_REQUEST',
-            'REQUEST_DATA_STREAM',
+            'REQUEST_DATA_STREAM', 'PARAM_REQUEST_READ', 'COMMAND_LONG', 'PARAM_REQUEST_LIST',
+            'SETUP_SIGNING',
             ].includes(message._name) ) { 
             
 	console.log('unhandled msg type - please add it to the list....:');
