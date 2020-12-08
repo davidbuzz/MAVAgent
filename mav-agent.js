@@ -52,10 +52,10 @@ master = argv.master;
 // might be useful, but not used yet.
 
 // the only bit of the serial handling that is outside the SmartSerialLink class, due to its .write 
-var serialport = undefined;
-var client  = undefined;
-var udp_server  = undefined;
-var udp_client_out  = undefined;
+//var serialport = undefined;
+//var client  = undefined;
+//var udp_server  = undefined;
+//var udp_client_out  = undefined;
 
 
 
@@ -67,7 +67,7 @@ var {mavlink20, MAVLink20Processor} = require("./mav_v2.js");
 //var mavParserObj = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
 
 
-var {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo,get_broadip_table,get_sys_to_ip_table} = require("./smartlinks.js");
+var {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo} = require("./smartlinks.js");
 
      //   console.log("main",SmartSerialLink);
      //   console.log("main",SmartUDPInLink);
@@ -75,94 +75,10 @@ var {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo,get_broadip
      //   console.log("main",mavParserObj);
      //   console.log("main",mpo);
 
-var broadcast_ip_address = get_broadip_table();
-var sysid_to_ip_address = get_sys_to_ip_table();
-
-//        console.log("main",broadcast_ip_address);
-//        console.log("main2",sysid_to_ip_address);
-
-// lookup table we populate later.
-//sysid_to_ip_address = {};
-//var broadcast_ip_address = undefined; 
-//sysid_to_mavlink_type = {};
-
 
 var logger = null;
 var mavParserObj = mpo;
 
-// create the output hooks for the parser/s
-// we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
-// and we accept ip/port either as part of the mavmsg object, or as a sysid in the OPTIONAL 2nd parameter
-generic_mav_udp_and_tcp_and_serial_sender = function(mavmsg,sysid) {
-    //console.log("generic send");
-    // this is really just part of the original send()
-    buf = mavmsg.pack(this);
-
-    broadcast_ip_address = get_broadip_table();
-    sysid_to_ip_address = get_sys_to_ip_table();
-    //console.log(broadcast_ip_address);
-
-    // if we don't know the sysid yet, then perhaps 255 is ok?
-    if ( sysid_to_ip_address[sysid] == undefined ) {
-        mavmsg.ip = broadcast_ip_address.ip;
-        mavmsg.port = broadcast_ip_address.port;
-        mavmsg.type = broadcast_ip_address.type; 
-    }
-
-      // where we want the packet to go on the network.. we sneak it into the already parsed object that still wraps the raw bytes.
-    if (mavmsg.ip == undefined || mavmsg.port == undefined){
-        //console.log(sysid_to_ip_address);
-        //console.log(sysid);
-        mavmsg.ip = sysid_to_ip_address[sysid].ip;
-        mavmsg.port = sysid_to_ip_address[sysid].port;
-        mavmsg.type = sysid_to_ip_address[sysid].type; // 'tcp' or 'udp'
-    }
-    if (mavmsg.ip == undefined || mavmsg.port == undefined){
-        console.log("unable to determine SEND ip/port from packet or sysid, sorry, discarding. sysid:${sysid}  msg:${mavmsg}");
-        return;
-    }
-    // at startup, till we've had at least one INCOMING packet, we can't send.
-    if ((mavmsg.type == "udp")&&(udp_server.have_we_recieved_anything_yet == null )) { 
-        console.log('mavlink udp write not possible yet,dropped packet.');
-        return;
-    } 
-
-    // at startup, till we've had at least one INCOMING packet, we can't send.
-    if ((mavmsg.type == "udpout")&&(udp_client_out.have_we_recieved_anything_yet == null )) { 
-        //console.log('mavlink udpout write not possible yet,dropped packet.');
-        return;
-    } 
-
-    const b = Buffer.from(buf);// convert from array object to Buffer so we can UDP send it.
-
-    //console.log(`... sending msg to: ${mavmsg.ip}:${mavmsg.port} ${mavmsg.type}`);
-    //console.log(b);
-
-    // send to the place we had comms for this sysid come from, this is the critical line change from the default send()
-    if (mavmsg.type == "udp") {
-        udp_server.send( b, mavmsg.port, mavmsg.ip ); 
-    }
-
-    if (mavmsg.type == "udpout") {
-        udp_client_out.send( b, mavmsg.port, mavmsg.ip  );
-    }
-
-    if (mavmsg.type == "tcp") {
-        client.write( b ); // already open, we hope
-    }
-
-    if (mavmsg.type == "serial") {
-        serialport.write( b ); // already open, we hope
-    }
-
-    // this is really just part of the original send()
-    this.seq = (this.seq + 1) % 256;
-    this.total_packets_sent +=1;
-    this.total_bytes_sent += buf.length;
-}
-
-//var origsend2 = MAVLink20Processor.prototype.send;
-MAVLink20Processor.prototype.send = generic_mav_udp_and_tcp_and_serial_sender
 
 // most modules are loadable/unloadable, but these few here aren't right now.
 var MavParams = require("./modules/mavParam.js");   // these are server-side js libraries for handling some more complicated bits of mavlink
@@ -609,12 +525,15 @@ process.stdin.on('data', function () {
 
 // if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
 if (master !== undefined ) {
-  serialport = new SmartSerialLink(master);
+
+    mpo.add_link('serial:/dev/ttyACM0');
+
 } else {
-    console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n')
-    client = new SmartTCPLink('127.0.0.1',57601)
-    udp_server = new SmartUDPInLink(14553);
-    udp_client_out = new SmartUDPOutLink('127.0.0.1',14552);
+    console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect\n');
+    mpo.add_link('tcp:localhost:5760');
+    mpo.add_link('udpin:blerg:14551');
+    mpo.add_link('udpout:localhost:14552');
+
 }
 
 
@@ -945,9 +864,9 @@ var heartbeat_handler =  function(message) {
             m.on('change', function(state,sysid) {
 
                 // don't try to handle the vehicle till we know its IP, this might delay us by one heartbeat packet.
-                if (sysid_to_ip_address[sysid] === undefined){ return ;}
+                //if (sysid_to_ip_address[sysid] === undefined){ return ;}
 
-                console.log(`\n--Got a MODE-CHANGE message from ${sysid_to_ip_address[sysid].ip}:${sysid_to_ip_address[sysid].port} ${sysid_to_ip_address[sysid].type}`);
+                console.log(`\n--Got a MODE-CHANGE message `);
                 console.log(`... with armed-state: ${state.armed} and sysid: ${sysid} and mode: ${state.mode}`);
 
                 // change the mode in the state subsystem to match this, but only if its changed.

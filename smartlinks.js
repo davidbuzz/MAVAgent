@@ -16,17 +16,62 @@ var ISSERIALCONNECTED = false;
 var broadcast_ip_address = {'ip':'127.0.0.1', 'port':'something', 'type':'else' }; 
 var sysid_to_ip_address = {};
 
-var logger = null;//console; //winston.createLogger({transports:[new(winston.transports.File)({ filename:'mavlink.dev.log'})]});
-
-var mpo = new MAVLink20Processor(logger, 255,190); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
+var link_list = [];  // a list of instantiated Smart*Link objs
 
 var get_broadip_table = function() { return broadcast_ip_address; }
 var get_sys_to_ip_table = function() { return sysid_to_ip_address; }
 
-       // console.log(mavParserObj);
-      //  console.log("mod",mpo)
 
 
+// either 'serial' or 'udpin' or 'serial:/dev/ttyACM0', or 'udpin:irrelevant:port' or 'udpout:1.2.3.4:port'
+// for serial, there's at most 2 parts ':' separated
+// for tcp and/or udp, there MUST be three parts ':' separated xxx:host:port
+add_link = function(thingname) {
+
+    var words = thingname.split(':'); 
+
+    if (words[0] == 'serial')  link_list.push(new SmartSerialLink(words[1]));
+    if (words[0]  == 'tcp')    link_list.push(new SmartTCPLink(words[1],words[2]));
+    if (words[0]  == 'udpin')  link_list.push(new SmartUDPInLink(words[2]));
+    if (words[0]  == 'udpout') link_list.push(new SmartUDPOutLink(words[1],words[2]));
+
+}
+
+
+// create the output hooks for the parser/s
+// we overwrite the default send() instead of overwriting write() or using setConnection(), which don't know the ip or port info.
+// and we accept ip/port either as part of the mavmsg object, or as a sysid in the OPTIONAL 2nd parameter
+generic_sender = function(mavmsg,sysid) {
+    //console.log("generic send");
+    // this is really just part of the original send()
+    buf = mavmsg.pack(this);
+
+    //console.log("which is connected? udpin.",ISUDPINCONNECTED,"udpout.",ISUDPOUTCONNECTED,"tcp.",ISTCPCONNECTED,"serial.",ISSERIALCONNECTED);
+
+    // a pretty dumb solution here to try to send it out all active uplinks that are reporting is_connected()
+    for ( l in link_list){
+        var lll= link_list[l];
+        if (lll.is_connected()) lll.ZZsend(buf);
+    }
+
+    // this is really just part of the original send()
+    this.seq = (this.seq + 1) % 256;
+    this.total_packets_sent +=1;
+    this.total_bytes_sent += buf.length;
+}
+
+var logger = null;//console; //winston.createLogger({transports:[new(winston.transports.File)({ filename:'mavlink.dev.log'})]});
+
+//var origsend2 = MAVLink20Processor.prototype.send;
+MAVLink20Processor.prototype.send = generic_sender;
+MAVLink20Processor.prototype.add_link = add_link;
+
+var mpo = new MAVLink20Processor(logger, 255,190); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
+
+//------------------------------------------------
+
+var spinners = ["-","\\","|","/"];
+var spinner = 0;
 // tcp_client.   udp_server.  and port.  all come thru here.
 var send_heartbeat_handler = function() {
 //console.log("hb handler");
@@ -40,7 +85,11 @@ var send_heartbeat_handler = function() {
 
       mpo.send(heartbeat,255); // we don't know the sysid yet, so 255 as a broadcast ip is ok.
 
-    process.stdout.write('>');
+    //    process.stdout.write("\b"); // move cursor back, but does not clear prev pos
+    spinner++;
+    spinner = spinner%4;
+    process.stdout.write("\b"); // move cursor back, but does not clear prev pos
+    process.stdout.write(spinners[spinner]);
 
 }
 
@@ -85,6 +134,10 @@ class SmartSerialLink extends SerialPort {
 
     is_connected() { return ISSERIALCONNECTED; }
 
+    // serials are sent with the write()
+    ZZsend(data) {
+        this.write( data ); // already open, we hope
+    }
     //https://serialport.io/docs/api-stream reference
 
     eventsetup() {
@@ -221,7 +274,7 @@ class SmartSerialLink extends SerialPort {
      this.heartbeat_interval = setInterval(function(){ // cant use 'this' inside this call, we're talking to the instance.
           ttt.heartbeat(); // types '>' on console 
           ttt.last_error = undefined;
-          if (ISSERIALCONNECTED ) show_stream_rates('serial')
+          if (ISSERIALCONNECTED ) show_stream_rates('serial',3)
         },1000);
 
   }
@@ -291,6 +344,12 @@ class SmartTCPLink extends net.Socket {
             return; 
         }// when other end goes-away unexpectedly
         send_heartbeat_handler();
+    }
+
+    // tcp is already open ,we hope.
+    ZZsend(data){
+        data = new Buffer.from(data)
+        this.write( data ); // already open, we hope
     }
 
 
@@ -396,7 +455,7 @@ class SmartTCPLink extends net.Socket {
           //if (udp_server != undefined ) udp_server.send_heartbeat(); // types '>' on console 
           //if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
           t.last_error = undefined;
-          if (ISTCPCONNECTED ) show_stream_rates('client')
+          if (ISTCPCONNECTED ) show_stream_rates('client',2)
         },1000);
         // clear with clearInterval(heartbeat_interval)
 
@@ -420,7 +479,7 @@ class SmartUDPOutLink extends dgram.Socket {
     constructor (ip, portnum) {
         super('udp4')
 
-        this.have_we_recieved_anything_yet  = undefined;
+       // this.have_we_recieved_anything_yet  = undefined;
 
         this.eventsetup();
 
@@ -433,32 +492,36 @@ class SmartUDPOutLink extends dgram.Socket {
 
       ISUDPOUTCONNECTED = true; // in constructor, before sending anything, assume the first send will be ok
 
-// we need to send something up-front to get a response from the remote end... and can't wait for first-incoming packet
-// in this case.
-if (1) {
-      var message = new mavlink20.messages.heartbeat(); 
-      message.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
-      message.type = 17; // fieldtype: uint8_t  isarray: False 
-      message.autopilot = 84; // fieldtype: uint8_t  isarray: False 
-      message.base_mode = 151; // fieldtype: uint8_t  isarray: False 
-      message.system_status = 218; // fieldtype: uint8_t  isarray: False 
-      message.mavlink_version = 3; // fieldtype: uint8_t  isarray: False 
+      this.probe_connection();
+    }
 
-      //mpo.send(heartbeat,255); // we don't know the sysid yet, so 255 as a broadcast ip is ok.
+    // on a new-or-not-yet-connected-link, try this to get connected.. its basically send_heartbeat without an is_connected() check.
+    probe_connection() {
+        // we need to send something up-front to get a response from the remote end... and can't wait for first-incoming packet
+        // in this case.
+        var message = new mavlink20.messages.heartbeat(); 
+        message.custom_mode = 963497464; // fieldtype: uint32_t  isarray: False 
+        message.type = 17; // fieldtype: uint8_t  isarray: False 
+        message.autopilot = 84; // fieldtype: uint8_t  isarray: False 
+        message.base_mode = 151; // fieldtype: uint8_t  isarray: False 
+        message.system_status = 218; // fieldtype: uint8_t  isarray: False 
+        message.mavlink_version = 3; // fieldtype: uint8_t  isarray: False 
 
-      process.stdout.write('#');
+        //mpo.send(heartbeat,255); // we don't know the sysid yet, so 255 as a broadcast ip is ok.
 
-       var buffer = new Buffer.from(message.pack(mpo));
+        process.stdout.write('#');
 
+        var buffer = new Buffer.from(message.pack(mpo));
 
-          broadcast_ip_address = {'ip':this._ip,'port':this._portnum, 'type':'udpout' }; 
+        broadcast_ip_address = {'ip':this._ip,'port':this._portnum, 'type':'udpout' }; 
         this.send(buffer,this._portnum,this._ip);
-}
 
-    //   this.heartbeat();
+    }
 
-  //  send_heartbeat_handler();
-
+    // udpout
+    ZZsend(data){
+        data = new Buffer.from(data);
+        this.send( data, this._portnum, this._ip  );
     }
 
 
@@ -466,10 +529,8 @@ if (1) {
 
     // basic checks of udp link before trying to send
     heartbeat() {
-       if ( ! ISUDPOUTCONNECTED ) return ;
-        // todo implement some thing that sends a heartbeat to each active udp stream ?
         send_heartbeat_handler();
-//console.log("udp client hb2");
+        if ( ! ISUDPOUTCONNECTED ) {console.log("udpout trying to reconnect..."); this.probe_connection();  }
     }
 
 
@@ -479,20 +540,20 @@ if (1) {
 
         // hook udp listener events to actions:
         this.on('error', (err) => {
-            ISUDPOUTCONNECTED = false; 
-            console.log(`udp client error:\n${err.stack}`);
+            //ISUDPOUTCONNECTED = false; 
+            console.log(`udpout error:\n${err.stack}`);
 //console.log("udp client err");
         });
 
         // this is a upd-server heartbeat handler at 1hz
         var tto = this;
         this.heartbeat_interval = setInterval(function(){
-//console.log("udp client hb1",tto);
+//console.log("udp out hb1",tto);
           //if (client != undefined ) client.send_heartbeat(); // types '>' on console 
           if (tto != undefined ) tto.heartbeat(); // types '>' on console 
           //if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
           //last_error = undefined;
-          if (ISUDPOUTCONNECTED ) show_stream_rates('udpout')
+          if (ISUDPOUTCONNECTED ) show_stream_rates('udpout',1)
         },1000);
 
 
@@ -512,7 +573,7 @@ if (1) {
             ISUDPOUTCONNECTED = true; 
 
             // first time thru:
-            if (this.have_we_recieved_anything_yet == undefined ) { this.have_we_recieved_anything_yet = true } 
+          //  if (this.have_we_recieved_anything_yet == undefined ) { this.have_we_recieved_anything_yet = true } 
 
             var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
 
@@ -564,8 +625,9 @@ class SmartUDPInLink extends dgram.Socket {
 
         this.bind(portnum);
 
-        this.have_we_recieved_anything_yet  = undefined;
+   //     this.have_we_recieved_anything_yet  = undefined;
 
+        this.last_rinfo = undefined;
         this.eventsetup();
     }
 
@@ -581,6 +643,12 @@ class SmartUDPInLink extends dgram.Socket {
 
     }
 
+    ZZsend(data) {
+            if (this.last_rinfo == undefined ) return;
+            data = new Buffer.from(data)
+            this.send( data,this.last_rinfo.port , this.last_rinfo.address ); 
+    }
+
     eventsetup(){
 
         // hook udp listener events to actions:
@@ -591,6 +659,8 @@ class SmartUDPInLink extends dgram.Socket {
 
         // UDPSERVER IS DIFFERENT TO TCP CLIENT BUT SIMILAR>>>
         this.on('message', (msg, rinfo) => {
+
+            this.last_rinfo = rinfo;
             //console.log(this.have_we_recieved_anything_yet);
             //console.log(rinfo);
 
@@ -600,7 +670,7 @@ class SmartUDPInLink extends dgram.Socket {
             ISUDPINCONNECTED = true; 
 
             // first time thru:
-            if (this.have_we_recieved_anything_yet == undefined ) { this.have_we_recieved_anything_yet = true } 
+      //      if (this.have_we_recieved_anything_yet == undefined ) { this.have_we_recieved_anything_yet = true } 
 
             var array_of_chars = Uint8Array.from(msg) // from Buffer to byte array
 
@@ -630,7 +700,7 @@ class SmartUDPInLink extends dgram.Socket {
           if (tt != undefined ) tt.heartbeat(); // types '>' on console 
           //if (serialport != undefined ) serialport.send_heartbeat(); // types '>' on console 
           //last_error = undefined;
-          if (ISUDPINCONNECTED ) show_stream_rates('udp')
+          if (ISUDPINCONNECTED ) show_stream_rates('udp',0)
         },1000);
 
     }
@@ -643,43 +713,52 @@ var last_pkt_cnt = 0;
 var rate = 0;
 var data_timeout = 0;
 var last_type = undefined;
+var highest_priority = -1;
 
-var show_stream_rates = function(type) {
+var show_stream_rates = function(type,priority) {
 
-    if ( type != last_type) { data_timeout=0;   last_type =type;  }
+    if ( (type != last_type) && (priority > highest_priority )) { data_timeout=0;   last_type =type;  highest_priority =priority; }
 
     var newrate = (mpo.total_packets_received- last_pkt_cnt);
 
-    if (newrate == 0 ) {data_timeout++;} else {data_timeout=0;}
+    if ((newrate == 0 )&& (priority == highest_priority) ) {data_timeout++;} else {data_timeout=0;}
 
     // allow a bit of jitter without reporting it
-    if (( Math.abs(rate - newrate) > 40)) {
-        console.log(type,"streamrate changed:",newrate," trend:",rate,"p/s");
+    if ( (priority == highest_priority) && ( Math.abs(rate - newrate) > 40)) {
+        console.log("streamrate changed:",newrate," trend:",rate,"p/s");
     } 
 
-    if (newrate == 0) {
-        console.log(type," DRONE LINK OFFLINE");
+    if ((newrate == 0) && (priority == highest_priority) ) {
+        console.log(type," DRONE LINK OFFLINE",highest_priority,priority);
+        //if (type == 'udpout') ISUDPOUTCONNECTED=false;
+        if (type == 'udpin') ISUDPINCONNECTED=false;
     } 
 
     // if "streamrate changed 0 p/s" for the ~5 seconds then consider other end has gone away and warn...
     // since UDP connections are 'connectionless', we use streamrate of zero as a proxy for 'disconnected'.
     // as a bonus... when this happens, the TCP auto-conenct code will start re-trying, till we get a stream from either one of them.
     if ((data_timeout > 5) && (ISUDPINCONNECTED)) { 
-        console.log("incoing udp stream has gone away, sorry.");
+        console.log("IN udp stream has gone away, sorry.");
         ISUDPINCONNECTED=false;
-        //data_timeout = 0;
+    }
+    if ((data_timeout > 5) && (ISUDPOUTCONNECTED)) { 
+        console.log("OUT udp stream has gone away, sorry.");
+        ISUDPOUTCONNECTED=false;
     }
 
     //first time through, assume 120 for no reason other than its plausible, 'newrate' works well for non-serials.
-    if (rate == 0) { rate = 120;} else {  rate = Math.floor(((rate*4)+newrate)/5); }
+    if ((priority == highest_priority) && (rate == 0)) { rate = 120;} 
+    if (priority == highest_priority) { rate = Math.floor(((rate*2)+newrate)/3); }
 
     last_pkt_cnt = mpo.total_packets_received;
 
+
+    //console.log("which is connected? udpin.",ISUDPINCONNECTED,"udpout.",ISUDPOUTCONNECTED,"tcp.",ISTCPCONNECTED,"serial.",ISSERIALCONNECTED);
 }
 //----------------------------------------------------------------------------------
 
 
 
-module.exports = {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo,get_broadip_table,get_sys_to_ip_table};
+module.exports = {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo};
 
 
