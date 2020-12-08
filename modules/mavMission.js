@@ -100,7 +100,8 @@ MavMission.prototype.sendToVehicle = function() {
 
 	// send mission_count to target, not src
 	var missionCount = new mavlink20.messages.mission_count(this.target_system, this.target_component, this.missionItems.length);
-        //console.log('count mission',missionCount._id,JSON.stringify(missionCount));
+    //missionCount.mission_type =  this.mission_type;
+        console.log('count mission',missionCount._id,JSON.stringify(missionCount),missionCount);
     console.log('MISSION_COUNT -->');
 	mavlinkParser.send(missionCount, uavConnection);
 
@@ -192,10 +193,11 @@ MavMission.prototype.missionCountHandler = function(missionCount) {
 }
 // Handler when the ArduPilot requests individual waypoints: upon receiving a request,
 // Send the next one.
-MavMission.prototype.missionItemHandler = function(missionItem) {
+MavMission.prototype.missionItemHandler = function(missionItem,tt) {
 
-    console.log("MISSION_ITEM_INT <--");
 
+    if (tt == 0)    console.log('MISSION_ITEM <--',missionItem.seq);
+    if (tt == 1)    console.log('MISSION_ITEM_INT <-- ',missionItem.seq);
 
     if ( this.missionItems[missionItem.seq] == 'last' ) { 
         //console.log('fetchMission-end');
@@ -264,9 +266,11 @@ MavMission.prototype.enableGetMission = function() {
     var t = this;
 	mavlinkParser.on('MISSION_COUNT', function(msg) { t.missionCountHandler(msg) } ); 
 
-	// attach mission_request handler, let it cook
+	// attach mission_request handler, let it cook - we'll listen for both, despite only needing one
     var tt = this;
-	mavlinkParser.on('MISSION_ITEM_INT', function(msg) { tt.missionItemHandler(msg) } );
+	mavlinkParser.on('MISSION_ITEM_INT', function(msg) { tt.missionItemHandler(msg,1) } );
+    var tt = this;
+	mavlinkParser.on('MISSION_ITEM', function(msg) { tt.missionItemHandler(msg,0) } );
 
 
     // also enable a 4hz idle tomer to handle timeouts on msges
