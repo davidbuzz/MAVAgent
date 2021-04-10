@@ -21,7 +21,7 @@ Longer Version on how to run it...
 
 Prerequisites:
 
- - You need to also run some sort of ArduPilot SITL( which listens for a connection on TCP port 6760):
+ - You need to also run some sort of ArduPilot SITL( which listens for a connection on TCP port 5760):
 
  - you need to have 'node' installed in the usual manner and in your path, so running 'node' works.
     https://nodejs.org/en/download/
