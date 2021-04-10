@@ -5,6 +5,12 @@ var util = require('util'),
 var uavConnection;
 var log;
 
+//https://mavlink.io/en/messages/common.html#MAV_TYPE
+// we'll get enough to identify if its a copter-ish or plane-ish thing...
+//MAV_TYPE
+//mavlink20.MAV_TYPE_FIXED_WING = 1 // Fixed wing aircraft.
+//mavlink20.MAV_TYPE_QUADROTOR = 2 // Quadrotor
+
 var mode_mapping_apm = {
     0 : 'MANUAL',
     1 : 'CIRCLE',
@@ -96,14 +102,22 @@ MavFlightMode.prototype.attachHandlers = function(sysid,mavlink,mavlinkParser,st
 
         //eg state might look like... { mode: 'MANUAL', armed: false }
 
-
         // do a deep copy of the original state. 'newState = state' is not enuf here.
         newState  = JSON.parse(JSON.stringify(state));
 
 		// Translate the bitfields for use in the client.
 
-        // arduplane uses packet.custom_mode to index into mode_mapping_apm - TODO copter uses acm
-        newState.mode = mode_mapping_apm[heartbeat.custom_mode]; 
+        //copter or plane or something else?
+        if (heartbeat.type == mavlink20.MAV_TYPE_FIXED_WING ) {
+            // arduplane uses packet.custom_mode to index into mode_mapping_apm 
+            newState.mode = mode_mapping_apm[heartbeat.custom_mode]; 
+        }
+        if (heartbeat.type == mavlink20.MAV_TYPE_QUADROTOR ) {
+            // arducopter uses packet.custom_mode to index into mode_mapping_acm 
+            newState.mode = mode_mapping_acm[heartbeat.custom_mode]; 
+        }
+
+
         //console.log("ardumode:"+newState.mode);
 		newState.armed = ( mavlink20.MAV_MODE_FLAG_SAFETY_ARMED & heartbeat.base_mode ) ? true : false;		
 

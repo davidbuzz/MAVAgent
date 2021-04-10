@@ -630,7 +630,7 @@ class SmartUDPOutLink extends dgram.Socket {
 
 
             // all msgs in this block came from the same ip/port etc, so we just process the first one for the lookup table.
-            if ( packetlist[0]._header !== undefined ) 
+            if ( packetlist &&  packetlist[0] && packetlist[0]._header !== undefined ) 
                 sysid_to_ip_address[packetlist[0]._header.srcSystem] = {'ip':rinfo.address, 'port':rinfo.port, 'type':"udpout" }; 
 
 //--------------------------------------------------------

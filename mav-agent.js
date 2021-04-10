@@ -531,11 +531,12 @@ if (master !== undefined ) {
 } else {
     console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect');
     console.log('              ...    uplink: [tcp:localhost:5760]  outlink: [udpout:localhost:14550]\n');
-    mpo.add_link('tcp:localhost:5760');
+    mpo.add_link('tcp:localhost:5760'); // to/from sitl
     //mpo.add_link('udpin:blerg:14551');
     //mpo.add_link('udpout:localhost:14552');
 
-    mpo.add_out('udpout:localhost:14550');
+    mpo.add_out('udpout:localhost:14550'); //to mavcontrol
+    mpo.add_out('udpout:localhost:14551'); // to mission planner
 }
 
 
@@ -569,7 +570,8 @@ var generic_message_handler = function(message) {
              'FENCE_STATUS' , 'AOA_SSA' , 'GPS_GLOBAL_ORIGIN', 'TERRAIN_REQUEST', 
             'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS','AUTOPILOT_VERSION_REQUEST',
             'REQUEST_DATA_STREAM', 'PARAM_REQUEST_READ', 'COMMAND_LONG', 'PARAM_REQUEST_LIST',
-            'SETUP_SIGNING', 'SET_MODE',
+            'SETUP_SIGNING', 'SET_MODE',  'MISSION_REQUEST_INT', 'FILE_TRANSFER_PROTOCOL', 'MISSION_REQUEST_LIST',
+            'PARAM_SET',
             ].includes(message._name) ) { 
             
 	console.log('unhandled msg type - please add it to the list....:');
@@ -689,6 +691,8 @@ defaults: {
   compid: 0,    // mavlink component ID of this aircraft, set by att_handler for now.
   speed: undefined, // kph.  Who the hell sets this?? TODO =P
   // this can likely be removed since we are most likely interested in ground speed
+
+  vehicle_type: 'Plane',   // Copter or Plane as a string.
 
   // Set by mavlink.global_position_int packets
   lat: undefined,
@@ -823,7 +827,7 @@ var heartbeat_handler =  function(message) {
     // if we already have the vehicle in the collection: 
     if ( current_vehicle) {  
         //console.log("------------------------------------");
-        //console.log(current_vehicle.get('id'));
+        //console.log(message);  
         current_vehicle.set( {
            // type: message.type,
           //  autopilot: message.autopilot,
@@ -834,7 +838,7 @@ var heartbeat_handler =  function(message) {
             mavlink_version: message.mavlink_version
         });
 
-        var vehicle_type = 'Plane'; // todo state.vehicle_type
+        //var vehicle_type = 'Plane'; // todo state.vehicle_type
         // mode is either undefined or a human-readable mode string like 'AUTO' or 'RTL'
         //console.log({ "sysid": current_vehicle.get('id'), 
         //                    "mode": current_vehicle.get('mode'),
@@ -842,7 +846,7 @@ var heartbeat_handler =  function(message) {
         io.of(IONameSpace).emit('mode', { "sysid": current_vehicle.get('id'), 
                             "mode": current_vehicle.get('mode'),
                             "armed": current_vehicle.get('armed'),
-                            "type": vehicle_type });
+                            "type": current_vehicle.get('vehicle_type') });
 
         //console.log("UPDATE:"+JSON.stringify(AllVehicles));
 
@@ -971,9 +975,24 @@ var statustext_handler = function(message) {
             io.of(IONameSpace).emit('disarmed', true); // no sysid in this msg.
         }
 
+/*
+        // kinda hacky way of determining if we are flying copter or plane..
+        if (_message.startsWith('ArduCopter')){
+            current_vehicle.set({
+                vehicle_type: 'Copter'
+            });
+        }
+        // kinda hacky way of determining if we are flying copter or plane..
+        if (_message.startsWith('ArduPlane')){
+            current_vehicle.set({
+                vehicle_type: 'Plane'
+            });
+        }
+*/
         // everything else is just pushed into the 'messages' display box by this event...
         io.of(IONameSpace).emit('status_text', { "sysid": message._header.srcSystem,  "text": _message});
         //io.of(IONameSpace).emit('message', { "sysid": current_vehicle.get('id'),  "message": _message});
+
     }
 }
 //mavlinkParser1.on('STATUSTEXT', statustext_handler);
