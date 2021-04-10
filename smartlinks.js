@@ -456,16 +456,15 @@ class SmartTCPLink extends net.Socket {
         // var last_error = undefined;
         this.on('error',function(error){
 
-            if (ISUDPINCONNECTED)  {  
-                return;
-            }
-            if (ISUDPOUTCONNECTED)  {  
-                return;
-            }
-            if (ISSERIALCONNECTED)  {  
-                //console.log("using incoming SERIAL data, stopped retries on TCP");    
-                return;
-            }
+            // if u have a udp-in conenction, then its ok not to have tcp, so don't complain about it or retry tcp.
+            if (ISUDPINCONNECTED)   {  return;  }
+
+            // if u have a serial conenction, then its ok not to have tcp, so don't complain about it or retry tcp.
+            if (ISSERIALCONNECTED)  {  return;  }  // dont tear-down the serial here either
+
+            // if u have a tcp connection to , say SITL, and that link goes away, its more important 
+            // than the udp-out, and udp out doesn't really 'disconnect' we just bbroadcast into the ether..
+            // not needed: if (ISUDPOUTCONNECTED)  {  ISUDPOUTCONNECTED=false; } 
 
             ISTCPCONNECTED = false; 
 
