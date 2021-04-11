@@ -532,6 +532,16 @@ if (master !== undefined ) {
     console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect');
     console.log('              ...    uplink: [tcp:localhost:5760]  outlink: [udpout:localhost:14550]\n');
     mpo.add_link('tcp:localhost:5760'); // to/from sitl
+    mpo.add_link('tcp:localhost:5770'); // to/from sitl
+    mpo.add_link('tcp:localhost:5780'); // to/from sitl
+    mpo.add_link('tcp:localhost:5790'); // to/from sitl
+    mpo.add_link('tcp:localhost:5800'); // to/from sitl
+    mpo.add_link('tcp:localhost:5810'); // to/from sitl
+    mpo.add_link('tcp:localhost:5820'); // to/from sitl
+    mpo.add_link('tcp:localhost:5830'); // to/from sitl
+    mpo.add_link('tcp:localhost:5840'); // to/from sitl
+    mpo.add_link('tcp:localhost:5850'); // to/from sitl
+
     //mpo.add_link('udpin:blerg:14551');
     //mpo.add_link('udpout:localhost:14552');
 
@@ -571,7 +581,7 @@ var generic_message_handler = function(message) {
             'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS','AUTOPILOT_VERSION_REQUEST',
             'REQUEST_DATA_STREAM', 'PARAM_REQUEST_READ', 'COMMAND_LONG', 'PARAM_REQUEST_LIST',
             'SETUP_SIGNING', 'SET_MODE',  'MISSION_REQUEST_INT', 'FILE_TRANSFER_PROTOCOL', 'MISSION_REQUEST_LIST',
-            'PARAM_SET',
+            'PARAM_SET', 'TERRAIN_DATA',
             ].includes(message._name) ) { 
             
 	console.log('unhandled msg type - please add it to the list....:');
