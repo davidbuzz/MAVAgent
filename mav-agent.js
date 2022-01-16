@@ -179,6 +179,8 @@ var mavlinktype = undefined;
 
 function unloadModule(key,file){
     console.log("->module UNloaded '"+key+"' from "+file);
+    // call destroy on constructed things , if it has one
+    if( typeof Xmodules[key].destroy !== "undefined" ) { Xmodules[key].destroy(); }
     // remove constructed things
     if(Xmodules.hasOwnProperty(key)) { delete Xmodules[key]; }
     // remove loader references
@@ -217,7 +219,15 @@ function loadModule(key,file){
 
            //Xmodules[key] = new modules[key]();
             console.log("->module loaded "+key+" from "+file);
-            Xmodules[key] = new modules[key](mavlink20,mavParserObj,);
+            Xmodules[key] = new modules[key](mavlink20,mavParserObj,SYSID,COMPID);
+
+            // does the module emit anything:
+            //Xmodules[key].on('message', (txt) => {
+            //  console.log(txt);// buzz todo 
+            //});
+            // Xmodules[key].on('LONGmessage', (txt) => {
+            //   console.log("LONG MSG!",txt);// buzz todo 
+            // });
       }
 }
 
@@ -274,7 +284,7 @@ process_cmdline = function(cmdline) {
     // a = load All modules
     if (args[0] == "a") {   LoadModules();  }
 
-
+//-----------------------------------
     if (args[0] == "ub") { 
         unloadModule('better','./modules/better.js');
     }
@@ -282,7 +292,7 @@ process_cmdline = function(cmdline) {
     if (args[0] == "b") { 
         loadModule('better','./modules/better.js');
     }
-
+//----------------------------------------------------
     // d = show signing debug object from signing.js, with .m and .parser  and .parser.signing: MAVLinkSigning { ... } and events
     if (args[0] == "d") { 
         console.log(mavParserObj);
@@ -294,6 +304,7 @@ process_cmdline = function(cmdline) {
 
         console.log(Xmodules.signing.show_state());
     }
+//-----------------------------
     // us= unload signing
     if (args[0] == "us") { 
         unloadModule('signing','./modules/signing.js');
@@ -308,7 +319,31 @@ process_cmdline = function(cmdline) {
         sysid = 1;
         Xmodules.signing.cmd_signing_setup([sk,sysid])
   }
+//-----------------------------
+    // lu= unload long
+    if (args[0] == "lu") { 
+        unloadModule('cmdlong','./modules/cmdlong.js');
+    }
 
+  // ll = load long
+  if (args[0] == "ll") { 
+        loadModule('cmdlong','./modules/cmdlong.js');
+
+        Xmodules.cmdlong.send('accel-cal');
+
+        //Xmodules.cmdlong.send('todo');
+  }
+
+  // lr = load reboot
+  if (args[0] == "lr") { 
+        loadModule('cmdlong','./modules/cmdlong.js');
+
+        Xmodules.cmdlong.send('reboot');
+        // after a reboot we dont want the long module any more...
+        unloadModule('cmdlong','./modules/cmdlong.js');
+
+  }
+//---------------------------
   // uu = 'undo signing' aka reverse of the 'ss' command
   if (args[0] == "uu") { 
         loadModule('signing','./modules/signing.js');
