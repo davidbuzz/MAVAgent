@@ -11,8 +11,9 @@ To deal with this in an async/nonblocking way gracefully, we do this in terms of
 TBD make #4 work
 
 **/
-var _ = require('underscore'),
-    mavlink = require("../mav_v2.js");
+var _ = require('underscore');
+//mavlink = require("../mav_v2.js");
+mavlink = require("../local_modules/mavlink_ardupilotmega_v2.0/mavlink.js"); //see ./local_modules/mavlink_ardupilotmega_v2.0/
 
 // Logger, passed in object constructor for common logging
 var log;

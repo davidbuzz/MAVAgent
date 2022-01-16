@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 //
-// this is a mavlink UDP listener for ArduPlane style vehicles that has a command-line and modules line MAVProxy
+// this is a mavlink client for ArduPlane style vehicles that has a command-line and modules,
+// inspired by MAVProxy
 //
-// incoming UDP mavlink/vehicl/sim data at 0.0.0.0:14550 is parsed SERVER SIDE IN NODE.js to generate json messages
 // uses 'backbone.js' as a server-side Model for the Vehicle state and a group of Vehicles, and as few other dependancies as possible.
 
-
-// Derived from some of my earlier work that had express,webserver,socketio for mavcontrol.. these lines below NOT current, but if u want something that uses them, this script and MAVControl/mavudp_to_ws_server.js from github are totally going to interest u.
-
-// delivers most static content from /static and socketio stuff from /socket.io and /node_index.html is the main page.
-
+// Parts derived from some of my earlier work that had express,webserver,socketio for 'MavControl', so u might 
+//   see spirious refs to these they haven't been removed yet.
 
 //-------------------------------------------------------------
 //
@@ -48,23 +45,10 @@ console.log("serial master connection:", argv.master);
 master = argv.master;
 }
 
-// https://www.npmjs.com/package/babysitter - Watches your node.js connections and automatically reconnects them when things fail.
-// might be useful, but not used yet.
-
-// the only bit of the serial handling that is outside the SmartSerialLink class, due to its .write 
-//var serialport = undefined;
-//var client  = undefined;
-//var udp_server  = undefined;
-//var udp_client_out  = undefined;
-
-
 
 // mavlink 2 related stuff:
 
-var {mavlink20, MAVLink20Processor} = require("./mav_v2.js"); 
-
-//var logger = null;//console; //winston.createLogger({transports:[new(winston.transports.File)({ filename:'mavlink.dev.log'})]});
-//var mavParserObj = new MAVLink20Processor(logger, 255,0); // 255 is the mavlink sysid of this code as a GCS, as per mavproxy.
+var {mavlink20, MAVLink20Processor} = require("./local_modules/mavlink_ardupilotmega_v2.0/mavlink.js"); //see ./local_modules/mavlink_ardupilotmega_v2.0/
 
 
 var {SmartSerialLink,SmartUDPInLink,SmartUDPOutLink,SmartTCPLink,mpo} = require("./smartlinks.js");
@@ -92,19 +76,13 @@ console.log(JSON.stringify(MavFlightMode));
 var nconf = require("nconf");
 var Backbone = require("backbone");
 
-
 //-------------------------------------------------------------
 //
 // Globals Variables, State Variables, Initialization.
 //
 //-------------------------------------------------------------
 
-
 require('events').EventEmitter.defaultMaxListeners = 0;
-
-
-// Logger
-
 
 // console prompt
 var MODE = 'UNKNOWN';
@@ -171,12 +149,6 @@ nsp.on = function(event,cb) {};
 IONameSpace = '/MAVControl';
 
 
-// socket.io namespace
-//const nsp = io.of(IONameSpace);
-
-//-----------------------------------------------------------------------------------------------
-
-
 //----------------------------------------------------------------------------------
 
 var set_stream_rates = function(rate,target_system,target_component) {
@@ -197,7 +169,6 @@ var set_stream_rates = function(rate,target_system,target_component) {
 
 // convenient global
 var mavlinktype = undefined;
-
 
 
 //-------------------------------------------------------------
@@ -456,8 +427,11 @@ process_cmdline = function(cmdline) {
 //-------------------------------------------------------------
 
 // triggers 'on' even after every keypress..
-process.stdin.setRawMode(true);
-
+// triggers 'on' even after every keypress..
+if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    }
+    
 var partialine = [];
 
 process.stdin.on('readable', function () {
@@ -509,12 +483,6 @@ process.stdin.on('data', function () {
   return;
 });
 
-//-------------------------------------------------------------
-//
-//  we need to keep a lookup table between the sysid and the ip/port/type of connection
-//
-//-------------------------------------------------------------
-
 
 
 //----------------------------------------------------------------------------------
@@ -526,21 +494,24 @@ process.stdin.on('data', function () {
 // if given a serial device, try to connect to it, otehrwise we'll try to auto-connect to tcp and udpin 
 if (master !== undefined ) {
 
-    mpo.add_link('serial:/dev/ttyACM0');
+    mpo.add_link('serial:'+master);
+
+    mpo.add_out('udpout:localhost:14550'); //to mavcontrol
+    //mpo.add_out('udpout:localhost:14551'); // to mission planner
 
 } else {
     console.log('--master not given. Skipping [SerialPort] and trying tcp and udp autoconnect');
     console.log('              ...    uplink: [tcp:localhost:5760]  outlink: [udpout:localhost:14550]\n');
     mpo.add_link('tcp:localhost:5760'); // to/from sitl
     mpo.add_link('tcp:localhost:5770'); // to/from sitl
-    mpo.add_link('tcp:localhost:5780'); // to/from sitl
-    mpo.add_link('tcp:localhost:5790'); // to/from sitl
-    mpo.add_link('tcp:localhost:5800'); // to/from sitl
-    mpo.add_link('tcp:localhost:5810'); // to/from sitl
-    mpo.add_link('tcp:localhost:5820'); // to/from sitl
-    mpo.add_link('tcp:localhost:5830'); // to/from sitl
-    mpo.add_link('tcp:localhost:5840'); // to/from sitl
-    mpo.add_link('tcp:localhost:5850'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5780'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5790'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5800'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5810'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5820'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5830'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5840'); // to/from sitl
+//    mpo.add_link('tcp:localhost:5850'); // to/from sitl
 
     //mpo.add_link('udpin:blerg:14551');
     //mpo.add_link('udpout:localhost:14552');
@@ -581,7 +552,8 @@ var generic_message_handler = function(message) {
             'FILE_TRANSFER_PROTOCOL', 'MOUNT_STATUS','AUTOPILOT_VERSION_REQUEST',
             'REQUEST_DATA_STREAM', 'PARAM_REQUEST_READ', 'COMMAND_LONG', 'PARAM_REQUEST_LIST',
             'SETUP_SIGNING', 'SET_MODE',  'MISSION_REQUEST_INT', 'FILE_TRANSFER_PROTOCOL', 'MISSION_REQUEST_LIST',
-            'PARAM_SET', 'TERRAIN_DATA',
+            'PARAM_SET', 'TERRAIN_DATA', 'TERRAIN_CHECK',
+            'MISSION_SET_CURRENT',
             ].includes(message._name) ) { 
             
 	console.log('unhandled msg type - please add it to the list....:');
@@ -628,7 +600,7 @@ var generic_message_handler = function(message) {
     //   STATUSTEXT handled elsewhere now
 
     if (  ['COMMAND_ACK' ].includes(message._name) ) {
-        console.log(`COMMAND_ACK command= ${message.command} result= ${message.result} `);
+        //console.log(`COMMAND_ACK command= ${message.command} result= ${message.result} `);
     } 
 
 
@@ -671,14 +643,12 @@ var generic_message_handler = function(message) {
 mavParserObj.on('message', generic_message_handler);
 
 
-
 var sysid = 12; // lets assume just one sysid to start with.
 
 // looks for flight-mode changes on this specific sysid only
 var mavFlightModes = [];
 
 mavFlightModes.push(new MavFlightMode(mavlink20, mavParserObj, null, logger,sysid));
-
 
 
 //-------------------------------------------------------------
@@ -839,38 +809,23 @@ var heartbeat_handler =  function(message) {
         //console.log("------------------------------------");
         //console.log(message);  
         current_vehicle.set( {
-           // type: message.type,
-          //  autopilot: message.autopilot,
-          //  base_mode: message.base_mode,
-          //  custom_mode: message.custom_mode,
-          //  system_status: message.system_status,
             last_heartbeat: Date.now(), //returns the number of milliseconds elapsed since January 1, 1970
             mavlink_version: message.mavlink_version
         });
 
-        //var vehicle_type = 'Plane'; // todo state.vehicle_type
-        // mode is either undefined or a human-readable mode string like 'AUTO' or 'RTL'
-        //console.log({ "sysid": current_vehicle.get('id'), 
-        //                    "mode": current_vehicle.get('mode'),
-        //                    "type": vehicle_type });
         io.of(IONameSpace).emit('mode', { "sysid": current_vehicle.get('id'), 
                             "mode": current_vehicle.get('mode'),
                             "armed": current_vehicle.get('armed'),
                             "type": current_vehicle.get('vehicle_type') });
 
-        //console.log("UPDATE:"+JSON.stringify(AllVehicles));
 
     // we only CREATE new vehicle object/s when we successfully see a HEARTBEAT from them:
     } else { 
 
 
-
         var tmpVehicle = new VehicleClass({id:message._header.srcSystem});
         // put the modified temporary object back onto the collection
         AllVehicles.add(tmpVehicle, {merge: true}); // 'add' can do "update" when merge=true, in case theres 2 of them somehow.
-        //console.log("ADD:"+JSON.stringify(AllVehicles));
-
-        //set_stream_rates(4,message._header.srcSystem,message._header.srcComponent);
 
         // assemble a new MavFlightMode hook to watch for this sysid:
         mavFlightModes.push(new MavFlightMode(mavlink20, mavParserObj, null, logger,tmp_sysid));
@@ -883,11 +838,6 @@ var heartbeat_handler =  function(message) {
             // this event is generated locally by mavFlightMode.js, and it passed the entire 'state' AND sysid as params
             m.on('change', function(state,sysid) {
 
-                // don't try to handle the vehicle till we know its IP, this might delay us by one heartbeat packet.
-                //if (sysid_to_ip_address[sysid] === undefined){ return ;}
-
-                console.log(`\n--Got a MODE-CHANGE message `);
-                console.log(`... with armed-state: ${state.armed} and sysid: ${sysid} and mode: ${state.mode}`);
 
                 // change the mode in the state subsystem to match this, but only if its changed.
                 var current_vehicle = AllVehicles.get(sysid);  
@@ -897,10 +847,6 @@ var heartbeat_handler =  function(message) {
                 if (current_vehicle.get('armed') != state.armed ) {
                     current_vehicle.set( { 'armed': state.armed});
                 }
-                // old way, not sure it worked in all cases.
-                //if ( current_vehicle) {  
-                //    current_vehicle.set( m.getState());  // or 'state' is equiv, hopefuly
-                //}
 
             });
         });
@@ -985,20 +931,6 @@ var statustext_handler = function(message) {
             io.of(IONameSpace).emit('disarmed', true); // no sysid in this msg.
         }
 
-/*
-        // kinda hacky way of determining if we are flying copter or plane..
-        if (_message.startsWith('ArduCopter')){
-            current_vehicle.set({
-                vehicle_type: 'Copter'
-            });
-        }
-        // kinda hacky way of determining if we are flying copter or plane..
-        if (_message.startsWith('ArduPlane')){
-            current_vehicle.set({
-                vehicle_type: 'Plane'
-            });
-        }
-*/
         // everything else is just pushed into the 'messages' display box by this event...
         io.of(IONameSpace).emit('status_text', { "sysid": message._header.srcSystem,  "text": _message});
         //io.of(IONameSpace).emit('message', { "sysid": current_vehicle.get('id'),  "message": _message});
@@ -1120,7 +1052,6 @@ function getTime() {
 function float(thing) { 
     return thing;
 }
-
 
 
 //-------------------------------------------------------------
@@ -1245,42 +1176,6 @@ nsp.on('connection', function(websocket) {
 
      });
 
-
-    // TODO add more here 
-
-/*  untested
-    // setGuided
-    websocket.on('setGuided',function(sysid) {
-
-        var target_system = sysid;
-        message = new mavlink20.messages.set_mode(target_system, mavlink20.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 4);                        
-        //buffer = new Buffer(message.pack(mavParserObj));
-        //connection.write(buffer)
-        mavParserObj.send(message,sysid);
-        console.log('Set guided mode');  
-    }
-
-    //takeOff
-    websocket.on('takeOff',function(sysid) {
-
-        var target_system = sysid;
-        message = new mavlink20.messages.command_long(target_system, 0, mavlink20.MAV_CMD_NAV_TAKEOFF, 0,  0, 0 ,0, 0, -35.363261, 149.165230, 10);                        
-        //buffer = new Buffer(message.pack(mavParserObj));
-        //connection.write(buffer)
-        mavParserObj.send(message,sysid);
-        console.log('Takeoff');  
-    }
-
-    //streamAll
-    websocket.on('streamAll',function(sysid) {
-
-        var target_system = sysid;
-        message = new mavlink20.messages.request_data_stream(target_system, 1, mavlink20.MAV_DATA_STREAM_ALL, 1, 1);
-        //buffer = new Buffer(message.pack(mavParserObj));
-        //connection.write(buffer);
-        mavParserObj.send(message,sysid);
-    }
-*/
 
 });
 

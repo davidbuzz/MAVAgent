@@ -14,8 +14,7 @@
   },
   "dependencies": {
     "backbone": "^1.4.0",
-    "jspack": "file:local_modules/jspack",
-    "long": "file:local_modules/long",
+    "mavlink_ardupilotmega_v2.0": "file:local_modules/mavlink_ardupilotmega_v2.0",
     "nconf": "0.10.0",
     "q": "1.5.1",
     "serialport": "^9.0.2",
